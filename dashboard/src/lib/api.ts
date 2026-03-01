@@ -50,6 +50,7 @@ export interface Route {
   upstream_path_prefix: string | null;
   service_id: string | null;
   max_body_bytes: number | null;
+  auth_skip: boolean;
   active: boolean;
   created_at: string;
   updated_at: string;
@@ -134,7 +135,7 @@ export const updateRateLimit = (id: string, data: Partial<RateLimit>) =>
 export const deleteRateLimit = (id: string) => api.delete(`/rate-limits/${id}`);
 
 // Health
-export const getHealth = () => api.get<{ status: string }>('/health').then(r => r.data);
+export const getHealth = () => api.get<{ status: string; version: string }>('/health').then(r => r.data);
 
 // Stats
 export interface Stats {
@@ -179,6 +180,10 @@ export interface Service {
 
 export const getServices = (params?: { search?: string; status?: string }) =>
   api.get<Paginated<Service>>('/services', { params }).then(r => r.data.data);
+export const getService = (id: string) =>
+  api.get<Service>(`/services/${id}`).then(r => r.data);
+export const getServiceSpec = (id: string) =>
+  api.get<any>(`/services/${id}/spec`).then(r => r.data);
 export const importService = (data: { url?: string; spec_content?: string; namespace: string; description?: string; tags?: string[]; status?: string }) =>
   api.post<Service>('/services/import', data).then(r => r.data);
 export const updateService = (id: string, data: { description?: string; tags?: string[]; status?: string }) =>

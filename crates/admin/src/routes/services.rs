@@ -237,13 +237,15 @@ pub async fn import_service(
             .await?;
         }
 
-        // Update service record
+        // Update service record (including spec_content)
+        let spec_text = String::from_utf8_lossy(&spec_bytes).to_string();
         let updated: shared::models::Service = sqlx::query_as(
-            "UPDATE services SET version = $1, spec_url = $2, spec_hash = $3, updated_at = now() WHERE id = $4 RETURNING *",
+            "UPDATE services SET version = $1, spec_url = $2, spec_hash = $3, spec_content = $4, updated_at = now() WHERE id = $5 RETURNING *",
         )
         .bind(new_version)
         .bind(&spec_url)
         .bind(&spec_hash)
+        .bind(&spec_text)
         .bind(existing.id)
         .fetch_one(&pool)
         .await?;
@@ -299,8 +301,8 @@ pub async fn import_service(
     };
 
     let route: shared::models::Route = sqlx::query_as(
-        r#"INSERT INTO routes (name, path_prefix, upstream_id, strip_prefix, upstream_path_prefix)
-           VALUES ($1, $2, $3, true, $4) RETURNING *"#,
+        r#"INSERT INTO routes (name, path_prefix, upstream_id, strip_prefix, upstream_path_prefix, auth_skip)
+           VALUES ($1, $2, $3, true, $4, true) RETURNING *"#,
     )
     .bind(format!("svc-{}", namespace))
     .bind(&path_prefix)
@@ -313,9 +315,10 @@ pub async fn import_service(
     let tags = body.tags.unwrap_or_default();
     let status = body.status.unwrap_or_else(|| "stable".to_string());
 
+    let spec_text = String::from_utf8_lossy(&spec_bytes).to_string();
     let service: shared::models::Service = sqlx::query_as(
-        r#"INSERT INTO services (namespace, spec_url, spec_hash, upstream_id, route_id, description, tags, status)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *"#,
+        r#"INSERT INTO services (namespace, spec_url, spec_hash, upstream_id, route_id, description, tags, status, spec_content)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *"#,
     )
     .bind(&namespace)
     .bind(&spec_url)
@@ -325,6 +328,7 @@ pub async fn import_service(
     .bind(&description)
     .bind(&tags)
     .bind(&status)
+    .bind(&spec_text)
     .fetch_one(&pool)
     .await?;
 
@@ -506,6 +510,29 @@ pub async fn update_service(
         created_at: updated.created_at,
         updated_at: updated.updated_at,
     }))
+}
+
+pub async fn get_service_spec(
+    State(pool): State<PgPool>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let row: Option<(Option<String>,)> =
+        sqlx::query_as("SELECT spec_content FROM services WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&pool)
+            .await?;
+
+    let (spec_content,) = row
+        .ok_or_else(|| AppError::NotFound("Service not found".into()))?;
+
+    match spec_content {
+        Some(content) => {
+            let parsed: serde_json::Value = serde_json::from_str(&content)
+                .map_err(|e| AppError::Internal(format!("Failed to parse stored spec: {}", e)))?;
+            Ok(Json(parsed))
+        }
+        None => Ok(Json(serde_json::json!(null))),
+    }
 }
 
 pub async fn delete_service(

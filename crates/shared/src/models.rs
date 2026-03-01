@@ -37,6 +37,7 @@ pub struct Route {
     pub upstream_path_prefix: Option<String>,
     pub service_id: Option<Uuid>,
     pub max_body_bytes: Option<i64>,
+    pub auth_skip: bool,
     pub active: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -91,6 +92,7 @@ pub struct Service {
     pub description: String,
     pub tags: Vec<String>,
     pub status: String,
+    pub spec_content: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

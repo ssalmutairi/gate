@@ -38,6 +38,7 @@ pub fn make_route(upstream_id: Uuid, path_prefix: &str) -> Route {
         upstream_path_prefix: None,
         service_id: None,
         max_body_bytes: None,
+        auth_skip: false,
         active: true,
         created_at: Utc::now(),
         updated_at: Utc::now(),

@@ -19,6 +19,8 @@ pub async fn run_migrations(pool: &PgPool) {
         include_str!("../../../migrations/006_create_request_logs.sql"),
         include_str!("../../../migrations/007_create_services.sql"),
         include_str!("../../../migrations/008_add_route_max_body.sql"),
+        include_str!("../../../migrations/009_add_spec_content.sql"),
+        include_str!("../../../migrations/010_add_route_auth_skip.sql"),
     ];
 
     for (i, sql) in migrations.iter().enumerate() {

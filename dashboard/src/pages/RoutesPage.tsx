@@ -37,6 +37,7 @@ export default function RoutesPage() {
   const [methods, setMethods] = useState<string[]>([]);
   const [upstreamId, setUpstreamId] = useState('');
   const [stripPrefix, setStripPrefix] = useState(false);
+  const [authSkip, setAuthSkip] = useState(false);
 
   const openCreate = () => {
     setEditing(null);
@@ -45,6 +46,7 @@ export default function RoutesPage() {
     setMethods([]);
     setUpstreamId(upstreams.data?.[0]?.id ?? '');
     setStripPrefix(false);
+    setAuthSkip(false);
     setModalOpen(true);
   };
 
@@ -55,6 +57,7 @@ export default function RoutesPage() {
     setMethods(route.methods ?? []);
     setUpstreamId(route.upstream_id);
     setStripPrefix(route.strip_prefix);
+    setAuthSkip(route.auth_skip);
     setModalOpen(true);
   };
 
@@ -106,6 +109,7 @@ export default function RoutesPage() {
       methods: methods.length > 0 ? methods : undefined,
       upstream_id: upstreamId,
       strip_prefix: stripPrefix,
+      auth_skip: authSkip,
     };
     if (editing) {
       updateMut.mutate({ id: editing.id, data });
@@ -144,6 +148,7 @@ export default function RoutesPage() {
                   <th className="px-4 py-3 font-medium">Path Prefix</th>
                   <th className="px-4 py-3 font-medium">Methods</th>
                   <th className="px-4 py-3 font-medium">Upstream</th>
+                  <th className="px-4 py-3 font-medium">Auth</th>
                   <th className="px-4 py-3 font-medium">Status</th>
                   <th className="px-4 py-3 font-medium">Actions</th>
                 </tr>
@@ -165,6 +170,13 @@ export default function RoutesPage() {
                       )}
                     </td>
                     <td className="px-4 py-3">{route.upstream_name ?? route.upstream_id.slice(0, 8)}</td>
+                    <td className="px-4 py-3">
+                      {route.auth_skip ? (
+                        <Badge variant="muted">Skipped</Badge>
+                      ) : (
+                        <Badge variant="default">Enforced</Badge>
+                      )}
+                    </td>
                     <td className="px-4 py-3">
                       <button
                         onClick={() => toggleActive.mutate({ id: route.id, active: !route.active })}
@@ -244,6 +256,14 @@ export default function RoutesPage() {
               onChange={(e) => setStripPrefix(e.target.checked)}
             />
             Strip path prefix
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={authSkip}
+              onChange={(e) => setAuthSkip(e.target.checked)}
+            />
+            Skip auth (let upstream handle authentication)
           </label>
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="secondary" type="button" onClick={() => setModalOpen(false)}>

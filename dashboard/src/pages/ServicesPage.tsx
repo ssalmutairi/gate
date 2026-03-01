@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getServices,
@@ -36,6 +37,7 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export default function ServicesPage() {
+  const navigate = useNavigate();
   const qc = useQueryClient();
 
   // Filters
@@ -226,7 +228,7 @@ export default function ServicesPage() {
               </thead>
               <tbody>
                 {services.data.map((svc) => (
-                  <tr key={svc.id} className="border-b border-border last:border-0 hover:bg-muted/50">
+                  <tr key={svc.id} className="border-b border-border last:border-0 hover:bg-muted/50 cursor-pointer" onClick={() => navigate(`/services/${svc.id}`)}>
                     <td className="px-4 py-3 font-medium">
                       /{svc.namespace}
                     </td>
@@ -261,14 +263,14 @@ export default function ServicesPage() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => openEdit(svc)}
+                          onClick={(e) => { e.stopPropagation(); openEdit(svc); }}
                         >
                           <Pencil className="w-4 h-4" />
                         </Button>
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => setDeleting(svc)}
+                          onClick={(e) => { e.stopPropagation(); setDeleting(svc); }}
                         >
                           <Trash2 className="w-4 h-4 text-destructive" />
                         </Button>

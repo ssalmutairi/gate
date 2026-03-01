@@ -162,7 +162,7 @@ impl ProxyHttp for GatewayProxy {
         }
 
         // --- 2. API Key Authentication ---
-        if config.route_requires_auth(&route_id) {
+        if !route.auth_skip && config.route_requires_auth(&route_id) {
             let key_header = session
                 .req_header()
                 .headers

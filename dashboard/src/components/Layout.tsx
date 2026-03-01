@@ -11,6 +11,8 @@ import {
   X,
 } from 'lucide-react';
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { getHealth } from '../lib/api';
 
 const navItems = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -25,6 +27,7 @@ const navItems = [
 export default function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const health = useQuery({ queryKey: ['health'], queryFn: getHealth, staleTime: 60_000 });
 
   return (
     <div className="flex h-screen bg-muted/30">
@@ -38,7 +41,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
       {/* Sidebar */}
       <aside
-        className={`fixed lg:static inset-y-0 left-0 z-50 w-64 bg-card border-r border-border transform transition-transform lg:translate-x-0 ${
+        className={`fixed lg:static inset-y-0 left-0 z-50 w-64 bg-card border-r border-border transform transition-transform lg:translate-x-0 flex flex-col ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
@@ -54,10 +57,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <X className="w-5 h-5" />
           </button>
         </div>
-        <nav className="p-3 space-y-1">
+        <nav className="p-3 space-y-1 flex-1">
           {navItems.map((item) => {
             const Icon = item.icon;
-            const active = location.pathname === item.path;
+            const active = item.path === '/'
+              ? location.pathname === '/'
+              : location.pathname.startsWith(item.path);
             return (
               <Link
                 key={item.path}
@@ -75,6 +80,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             );
           })}
         </nav>
+        {health.data?.version && (
+          <div className="px-4 py-3 border-t border-border text-xs text-muted-foreground">
+            v{health.data.version}
+          </div>
+        )}
       </aside>
 
       {/* Main content */}

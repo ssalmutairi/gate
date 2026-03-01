@@ -93,6 +93,10 @@ pub fn build_router(pool: PgPool) -> Router {
                 .put(routes::services::update_service)
                 .delete(routes::services::delete_service),
         )
+        .route(
+            "/admin/services/:id/spec",
+            get(routes::services::get_service_spec),
+        )
         // Stats & Logs
         .route("/admin/stats", get(routes::stats::get_stats))
         .route("/admin/logs", get(routes::stats::get_logs))

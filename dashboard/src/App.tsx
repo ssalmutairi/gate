@@ -8,6 +8,7 @@ import ApiKeysPage from './pages/ApiKeysPage';
 import RateLimitsPage from './pages/RateLimitsPage';
 import LogsPage from './pages/LogsPage';
 import ServicesPage from './pages/ServicesPage';
+import ServiceDetailPage from './pages/ServiceDetailPage';
 import { Toaster } from './components/ui';
 
 const queryClient = new QueryClient({
@@ -32,6 +33,7 @@ function App() {
           <Routes>
             <Route path="/" element={<DashboardPage />} />
             <Route path="/services" element={<ServicesPage />} />
+            <Route path="/services/:id" element={<ServiceDetailPage />} />
             <Route path="/routes" element={<RoutesPage />} />
             <Route path="/upstreams" element={<UpstreamsPage />} />
             <Route path="/api-keys" element={<ApiKeysPage />} />

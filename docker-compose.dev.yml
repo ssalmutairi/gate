@@ -1,0 +1,52 @@
+# Dev overrides — use with:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#
+# Enables hot reload for both Rust gateway and React dashboard.
+
+services:
+  gateway:
+    build: !reset null
+    image: rust:1-slim-bookworm
+    volumes:
+      - .:/app
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+      - cargo-target:/app/target
+    working_dir: /app
+    command:
+      - /bin/bash
+      - -c
+      - |
+        apt-get update && apt-get install -y pkg-config libssl-dev cmake >/dev/null 2>&1
+        cargo install cargo-watch --locked 2>/dev/null
+        cargo watch -x 'run --bin admin' &
+        cargo watch -x 'run --bin proxy'
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9000/admin/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      start_period: 120s
+      retries: 5
+
+  dashboard:
+    build: !reset null
+    image: node:22-alpine
+    volumes:
+      - ./dashboard:/app
+      - dashboard-node-modules:/app/node_modules
+    working_dir: /app
+    environment:
+      VITE_API_TARGET: http://gateway:9000
+    command:
+      - /bin/sh
+      - -c
+      - |
+        npm install && npm run dev -- --host 0.0.0.0
+    ports: !override
+      - "3000:5173"
+
+volumes:
+  cargo-registry:
+  cargo-git:
+  cargo-target:
+  dashboard-node-modules:

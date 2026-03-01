@@ -13,7 +13,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/admin': {
-        target: 'http://localhost:9001',
+        target: process.env.VITE_API_TARGET || 'http://localhost:9001',
         changeOrigin: true,
       },
     },
