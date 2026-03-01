@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-03-02
+
+### Fixed
+
+- **TLS Upstream Proxying** - Enabled rustls TLS backend for Pingora with HTTP/2 ALPN negotiation, fixing 502 errors on all HTTPS upstream connections
+- **Docker Build** - Fixed glibc mismatch by pinning builder image to `rust:1-slim-bookworm` to match the `debian:bookworm-slim` runtime
+- **OpenAPI Import** - Handle relative server URLs in OpenAPI specs by resolving against the source URL
+- **Dashboard Dev Proxy** - Corrected Vite dev proxy target port from 9000 to 9001
+
 ## [1.0.0] - 2026-03-01
 
 ### Added

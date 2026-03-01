@@ -4,6 +4,6 @@ use serde_json::{json, Value};
 pub async fn health_check() -> Json<Value> {
     Json(json!({
         "status": "ok",
-        "version": "1.0.0"
+        "version": "1.0.1"
     }))
 }

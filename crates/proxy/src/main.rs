@@ -118,7 +118,7 @@ fn print_banner(config: &AppConfig) {
     let health = format!("every {}s", config.health_check_interval_secs);
     eprintln!();
     eprintln!("  ┌───────────────────────────────────┐");
-    eprintln!("  │         Gate Proxy v1.0.0         │");
+    eprintln!("  │         Gate Proxy v1.0.1         │");
     eprintln!("  ├───────────────────────────────────┤");
     eprintln!("  │  Proxy:   {:<24}│", proxy_addr);
     eprintln!("  │  Metrics: {:<24}│", metrics_addr);

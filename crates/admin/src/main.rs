@@ -15,7 +15,7 @@ async fn main() {
     let auth = if config.admin_token.is_some() { "token required" } else { "open (no token)" };
     eprintln!();
     eprintln!("  ┌───────────────────────────────────┐");
-    eprintln!("  │      Gate Admin API v1.0.0        │");
+    eprintln!("  │      Gate Admin API v1.0.1        │");
     eprintln!("  ├───────────────────────────────────┤");
     eprintln!("  │  Bind: {:<27}│", bind);
     eprintln!("  │  Auth: {:<27}│", auth);
