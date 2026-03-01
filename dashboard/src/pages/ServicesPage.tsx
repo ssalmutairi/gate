@@ -17,7 +17,16 @@ import {
   EmptyState,
   toast,
 } from '../components/ui';
-import { Plus, Trash2, Pencil, Search } from 'lucide-react';
+import { Plus, Trash2, Pencil, Search, Link, Upload, FileText } from 'lucide-react';
+
+function slugify(input: string): string {
+  return input
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+type ImportMethod = 'url' | 'file' | 'paste';
 
 const STATUS_COLORS: Record<string, string> = {
   alpha: 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200',
@@ -46,7 +55,9 @@ export default function ServicesPage() {
   const [deleting, setDeleting] = useState<Service | null>(null);
 
   // Import form state
+  const [importMethod, setImportMethod] = useState<ImportMethod>('url');
   const [url, setUrl] = useState('');
+  const [specContent, setSpecContent] = useState('');
   const [namespace, setNamespace] = useState('');
 
   // Edit form state
@@ -94,7 +105,21 @@ export default function ServicesPage() {
 
   const handleImport = (e: React.FormEvent) => {
     e.preventDefault();
-    importMut.mutate({ url, namespace });
+    const slug = slugify(namespace);
+    if (!slug) return;
+    if (importMethod === 'url') {
+      importMut.mutate({ url, namespace: slug });
+    } else {
+      importMut.mutate({ spec_content: specContent, namespace: slug });
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setSpecContent(reader.result as string);
+    reader.readAsText(file);
   };
 
   const openEdit = (svc: Service) => {
@@ -128,7 +153,9 @@ export default function ServicesPage() {
         </div>
         <Button
           onClick={() => {
+            setImportMethod('url');
             setUrl('');
+            setSpecContent('');
             setNamespace('');
             setModalOpen(true);
           }}
@@ -172,7 +199,9 @@ export default function ServicesPage() {
             action={
               <Button
                 onClick={() => {
+                  setImportMethod('url');
                   setUrl('');
+                  setSpecContent('');
                   setNamespace('');
                   setModalOpen(true);
                 }}
@@ -260,23 +289,90 @@ export default function ServicesPage() {
         title="Import OpenAPI Spec"
       >
         <form onSubmit={handleImport} className="space-y-4">
-          <Input
-            label="Spec URL"
-            placeholder="https://petstore3.swagger.io/api/v3/openapi.json"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            required
-          />
-          <Input
-            label="Namespace"
-            placeholder="petstore"
-            value={namespace}
-            onChange={(e) => setNamespace(e.target.value)}
-            required
-          />
-          <p className="text-xs text-muted-foreground">
-            Requests to <code>/{namespace || 'namespace'}/...</code> will be proxied to the spec's server URL.
-          </p>
+          {/* Method selector */}
+          <div className="flex rounded-lg border border-border overflow-hidden">
+            {([
+              { key: 'url' as ImportMethod, label: 'URL', icon: Link },
+              { key: 'file' as ImportMethod, label: 'File', icon: Upload },
+              { key: 'paste' as ImportMethod, label: 'Paste', icon: FileText },
+            ]).map(({ key, label, icon: Icon }) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setImportMethod(key)}
+                className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors ${
+                  importMethod === key
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-background text-muted-foreground hover:bg-muted'
+                }`}
+              >
+                <Icon className="w-4 h-4" />
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* URL input */}
+          {importMethod === 'url' && (
+            <Input
+              label="Spec URL"
+              placeholder="https://petstore3.swagger.io/api/v3/openapi.json"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              required
+            />
+          )}
+
+          {/* File upload */}
+          {importMethod === 'file' && (
+            <div>
+              <label className="block text-sm font-medium mb-1">Spec File</label>
+              <input
+                type="file"
+                accept=".json"
+                onChange={handleFileChange}
+                className="w-full text-sm file:mr-3 file:px-3 file:py-1.5 file:rounded-md file:border-0 file:bg-primary file:text-primary-foreground file:text-sm file:font-medium file:cursor-pointer cursor-pointer"
+                required={!specContent}
+              />
+              {specContent && (
+                <p className="mt-1 text-xs text-green-600 dark:text-green-400">
+                  File loaded ({Math.round(specContent.length / 1024)}KB)
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Paste JSON */}
+          {importMethod === 'paste' && (
+            <div>
+              <label className="block text-sm font-medium mb-1">Spec JSON</label>
+              <textarea
+                value={specContent}
+                onChange={(e) => setSpecContent(e.target.value)}
+                placeholder='{"openapi":"3.0.0","info":{"title":"My API",...}}'
+                rows={8}
+                className="w-full px-3 py-2 rounded-md border border-border bg-background text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring resize-y"
+                required
+              />
+            </div>
+          )}
+
+          {/* Service Name + slug preview */}
+          <div>
+            <Input
+              label="Service Name"
+              placeholder="Pet Store"
+              value={namespace}
+              onChange={(e) => setNamespace(e.target.value)}
+              required
+            />
+            {namespace && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Path prefix: <code className="px-1 py-0.5 rounded bg-muted">/{slugify(namespace)}/...</code>
+              </p>
+            )}
+          </div>
+
           <div className="flex justify-end gap-2 pt-2">
             <Button
               variant="secondary"

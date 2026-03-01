@@ -179,7 +179,7 @@ export interface Service {
 
 export const getServices = (params?: { search?: string; status?: string }) =>
   api.get<Paginated<Service>>('/services', { params }).then(r => r.data.data);
-export const importService = (data: { url: string; namespace: string; description?: string; tags?: string[]; status?: string }) =>
+export const importService = (data: { url?: string; spec_content?: string; namespace: string; description?: string; tags?: string[]; status?: string }) =>
   api.post<Service>('/services/import', data).then(r => r.data);
 export const updateService = (id: string, data: { description?: string; tags?: string[]; status?: string }) =>
   api.put<Service>(`/services/${id}`, data).then(r => r.data);

@@ -11,7 +11,8 @@ use crate::errors::AppError;
 
 #[derive(Deserialize)]
 pub struct ImportRequest {
-    pub url: String,
+    pub url: Option<String>,
+    pub spec_content: Option<String>,
     pub namespace: String,
     pub description: Option<String>,
     pub tags: Option<Vec<String>>,
@@ -86,46 +87,69 @@ fn parse_spec_server(spec: &serde_json::Value) -> Result<(String, String, u16, b
     Ok((base_path, host, port, tls))
 }
 
+// --- Helpers ---
+
+/// Convert a friendly name like "Pet Store" into a URL-safe slug "pet-store".
+fn slugify(input: &str) -> String {
+    input
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect::<String>()
+        .split('-')
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
 // --- Handlers ---
 
 pub async fn import_service(
     State(pool): State<PgPool>,
     Json(body): Json<ImportRequest>,
 ) -> Result<(axum::http::StatusCode, Json<ServiceResponse>), AppError> {
-    // Validate namespace
-    let namespace = body.namespace.trim().trim_matches('/').to_string();
+    // Slugify namespace
+    let namespace = slugify(&body.namespace);
     if namespace.is_empty() {
         return Err(AppError::Validation("namespace is required".into()));
     }
-    if namespace.contains('/') {
-        return Err(AppError::Validation(
-            "namespace must be a single path segment (no slashes)".into(),
-        ));
-    }
 
-    // Fetch the spec
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()
-        .map_err(|e| AppError::Internal(format!("Failed to create HTTP client: {}", e)))?;
+    // Acquire spec bytes and determine spec_url
+    let (spec_bytes, spec_url): (Vec<u8>, String) =
+        if let Some(ref content) = body.spec_content {
+            let bytes = content.as_bytes().to_vec();
+            let url = body.url.clone().unwrap_or_else(|| "inline".to_string());
+            (bytes, url)
+        } else if let Some(ref url) = body.url {
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(30))
+                .build()
+                .map_err(|e| AppError::Internal(format!("Failed to create HTTP client: {}", e)))?;
 
-    let resp = client
-        .get(&body.url)
-        .send()
-        .await
-        .map_err(|e| AppError::Validation(format!("Failed to fetch spec: {}", e)))?;
+            let resp = client
+                .get(url)
+                .send()
+                .await
+                .map_err(|e| AppError::Validation(format!("Failed to fetch spec: {}", e)))?;
 
-    if !resp.status().is_success() {
-        return Err(AppError::Validation(format!(
-            "Spec URL returned HTTP {}",
-            resp.status()
-        )));
-    }
+            if !resp.status().is_success() {
+                return Err(AppError::Validation(format!(
+                    "Spec URL returned HTTP {}",
+                    resp.status()
+                )));
+            }
 
-    let spec_bytes = resp
-        .bytes()
-        .await
-        .map_err(|e| AppError::Internal(format!("Failed to read spec body: {}", e)))?;
+            let bytes = resp
+                .bytes()
+                .await
+                .map_err(|e| AppError::Internal(format!("Failed to read spec body: {}", e)))?
+                .to_vec();
+            (bytes, url.clone())
+        } else {
+            return Err(AppError::Validation(
+                "Either 'url' or 'spec_content' must be provided".into(),
+            ));
+        };
 
     // Compute hash
     let mut hasher = Sha256::new();
@@ -193,7 +217,7 @@ pub async fn import_service(
             "UPDATE services SET version = $1, spec_url = $2, spec_hash = $3, updated_at = now() WHERE id = $4 RETURNING *",
         )
         .bind(new_version)
-        .bind(&body.url)
+        .bind(&spec_url)
         .bind(&spec_hash)
         .bind(existing.id)
         .fetch_one(&pool)
@@ -269,7 +293,7 @@ pub async fn import_service(
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *"#,
     )
     .bind(&namespace)
-    .bind(&body.url)
+    .bind(&spec_url)
     .bind(&spec_hash)
     .bind(upstream.id)
     .bind(route.id)
