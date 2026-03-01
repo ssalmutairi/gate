@@ -298,11 +298,17 @@ impl ProxyHttp for GatewayProxy {
         }
         metrics::ACTIVE_CONNECTIONS.inc();
 
-        let peer = HttpPeer::new(
+        let mut peer = HttpPeer::new(
             (target.host.as_str(), target.port as u16),
             target.tls,
             target.host.clone(),
         );
+
+        // Allow HTTP/2 for TLS upstreams (many HTTPS servers require h2 via ALPN)
+        if target.tls {
+            peer.options.set_http_version(2, 1);
+        }
+
         Ok(Box::new(peer))
     }
 

@@ -19,6 +19,11 @@ use service::GatewayProxy;
 use shared::config::AppConfig;
 
 fn main() {
+    // Install rustls crypto provider for TLS upstream connections
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install rustls crypto provider");
+
     let app_config = AppConfig::from_env();
 
     // Initialize tracing

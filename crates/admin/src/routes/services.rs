@@ -61,7 +61,11 @@ pub struct ListResponse<T> {
 // --- Helpers ---
 
 /// Extract base path, host, port, and TLS from the first server URL in an OpenAPI spec.
-fn parse_spec_server(spec: &serde_json::Value) -> Result<(String, String, u16, bool), AppError> {
+/// `source_url` is used as a base when the spec's server URL is relative.
+fn parse_spec_server(
+    spec: &serde_json::Value,
+    source_url: &str,
+) -> Result<(String, String, u16, bool), AppError> {
     let server_url = spec
         .get("servers")
         .and_then(|s| s.as_array())
@@ -70,10 +74,31 @@ fn parse_spec_server(spec: &serde_json::Value) -> Result<(String, String, u16, b
         .and_then(|u| u.as_str())
         .ok_or_else(|| AppError::Validation("Spec must have at least one server URL".into()))?;
 
-    // Parse the server URL
-    let parsed = url::Url::parse(server_url).map_err(|e| {
-        AppError::Validation(format!("Invalid server URL '{}': {}", server_url, e))
-    })?;
+    // Try parsing as absolute URL first; fall back to resolving against source_url
+    let parsed = match url::Url::parse(server_url) {
+        Ok(u) => u,
+        Err(url::ParseError::RelativeUrlWithoutBase) => {
+            // Resolve the relative path against the spec's source URL
+            let base = url::Url::parse(source_url).map_err(|e| {
+                AppError::Validation(format!(
+                    "Server URL '{}' is relative but source URL '{}' is invalid: {}",
+                    server_url, source_url, e
+                ))
+            })?;
+            base.join(server_url).map_err(|e| {
+                AppError::Validation(format!(
+                    "Failed to resolve relative server URL '{}' against '{}': {}",
+                    server_url, source_url, e
+                ))
+            })?
+        }
+        Err(e) => {
+            return Err(AppError::Validation(format!(
+                "Invalid server URL '{}': {}",
+                server_url, e
+            )));
+        }
+    };
 
     let tls = parsed.scheme() == "https";
     let host = parsed
@@ -161,7 +186,7 @@ pub async fn import_service(
         .map_err(|e| AppError::Validation(format!("Invalid JSON in spec: {}", e)))?;
 
     // Extract server info
-    let (base_path, host, port, tls) = parse_spec_server(&spec)?;
+    let (base_path, host, port, tls) = parse_spec_server(&spec, &spec_url)?;
 
     // Check if namespace already exists
     let existing: Option<shared::models::Service> =
