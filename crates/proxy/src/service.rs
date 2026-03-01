@@ -24,6 +24,10 @@ pub struct GatewayCtx {
     pub target_id: Option<Uuid>,
     pub strip_prefix: bool,
     pub path_prefix: String,
+    /// Path prefix to prepend when forwarding to the upstream (e.g. "/api/v3").
+    pub upstream_path_prefix: Option<String>,
+    /// Whether the selected target uses TLS.
+    pub target_tls: bool,
     /// The client identity for rate limiting (IP or API key hash).
     pub client_identity: Option<String>,
 }
@@ -111,6 +115,8 @@ impl ProxyHttp for GatewayProxy {
             target_id: None,
             strip_prefix: false,
             path_prefix: String::new(),
+            upstream_path_prefix: None,
+            target_tls: false,
             client_identity: None,
         }
     }
@@ -140,6 +146,20 @@ impl ProxyHttp for GatewayProxy {
         ctx.upstream_id = Some(route.upstream_id);
         ctx.strip_prefix = route.strip_prefix;
         ctx.path_prefix = route.path_prefix.clone();
+        ctx.upstream_path_prefix = route.upstream_path_prefix.clone();
+
+        // --- 1b. Request size limiting ---
+        if let Some(max_bytes) = route.max_body_bytes {
+            if let Some(cl) = session.req_header().headers.get("content-length") {
+                if let Ok(len) = cl.to_str().unwrap_or("0").parse::<i64>() {
+                    if len > max_bytes {
+                        return self
+                            .send_json_error(session, 413, "Request body too large", "BODY_TOO_LARGE")
+                            .await;
+                    }
+                }
+            }
+        }
 
         // --- 2. API Key Authentication ---
         if config.route_requires_auth(&route_id) {
@@ -269,6 +289,7 @@ impl ProxyHttp for GatewayProxy {
 
         ctx.upstream_target = Some(format!("{}:{}", target.host, target.port));
         ctx.target_id = Some(target.id);
+        ctx.target_tls = target.tls;
 
         // Increment connection count for least-connections tracking
         {
@@ -279,7 +300,7 @@ impl ProxyHttp for GatewayProxy {
 
         let peer = HttpPeer::new(
             (target.host.as_str(), target.port as u16),
-            false,
+            target.tls,
             target.host.clone(),
         );
         Ok(Box::new(peer))
@@ -319,6 +340,23 @@ impl ProxyHttp for GatewayProxy {
             upstream_request.set_uri(new_uri.parse().unwrap());
         }
 
+        // Prepend upstream_path_prefix (e.g. /api/v3) after strip
+        if let Some(ref prefix) = ctx.upstream_path_prefix {
+            let current_path = upstream_request.uri.path().to_string();
+            let new_path = format!(
+                "{}{}",
+                prefix.trim_end_matches('/'),
+                if current_path.starts_with('/') { &current_path } else { "/" }
+            );
+            let query = upstream_request.uri.query();
+            let new_uri = if let Some(q) = query {
+                format!("{new_path}?{q}")
+            } else {
+                new_path
+            };
+            upstream_request.set_uri(new_uri.parse().unwrap());
+        }
+
         // Security: set forwarded headers
         let client_ip = self.get_client_ip(session);
         upstream_request.insert_header("X-Forwarded-For", &client_ip).unwrap();
@@ -344,6 +382,69 @@ impl ProxyHttp for GatewayProxy {
         upstream_request
             .insert_header("X-Gateway-Request-Id", &Uuid::new_v4().to_string())
             .unwrap();
+
+        // Apply user-configured request-phase header rules
+        if let Some(route_id) = ctx.route_id {
+            let config = self.config.load();
+            if let Some(rules) = config.get_header_rules(&route_id) {
+                for rule in rules.iter().filter(|r| r.phase == "request") {
+                    if let Ok(header_name) = http::header::HeaderName::from_bytes(rule.header_name.as_bytes()) {
+                        match rule.action.as_str() {
+                            "set" => {
+                                if let Some(ref val) = rule.header_value {
+                                    let _ = upstream_request.insert_header(header_name, val);
+                                }
+                            }
+                            "add" => {
+                                if let Some(ref val) = rule.header_value {
+                                    let _ = upstream_request.append_header(header_name, val);
+                                }
+                            }
+                            "remove" => {
+                                upstream_request.remove_header(&header_name);
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn upstream_response_filter(
+        &self,
+        _session: &mut Session,
+        upstream_response: &mut pingora::http::ResponseHeader,
+        ctx: &mut Self::CTX,
+    ) -> Result<()> {
+        // Apply user-configured response-phase header rules
+        if let Some(route_id) = ctx.route_id {
+            let config = self.config.load();
+            if let Some(rules) = config.get_header_rules(&route_id) {
+                for rule in rules.iter().filter(|r| r.phase == "response") {
+                    if let Ok(header_name) = http::header::HeaderName::from_bytes(rule.header_name.as_bytes()) {
+                        match rule.action.as_str() {
+                            "set" => {
+                                if let Some(ref val) = rule.header_value {
+                                    let _ = upstream_response.insert_header(header_name, val);
+                                }
+                            }
+                            "add" => {
+                                if let Some(ref val) = rule.header_value {
+                                    let _ = upstream_response.append_header(header_name, val);
+                                }
+                            }
+                            "remove" => {
+                                upstream_response.remove_header(&header_name);
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
 
         Ok(())
     }
@@ -401,6 +502,119 @@ impl ProxyHttp for GatewayProxy {
             client_ip: self.get_client_ip(session),
             upstream_target: ctx.upstream_target.clone(),
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lb::ConnectionTracker;
+    use crate::router::GatewayConfig;
+    use arc_swap::ArcSwap;
+    use sqlx::postgres::PgPoolOptions;
+
+    fn make_test_proxy() -> GatewayProxy {
+        let pool = PgPoolOptions::new()
+            .connect_lazy("postgres://fake:fake@localhost:1/fake")
+            .unwrap();
+        let config = GatewayConfig::new(vec![], vec![], vec![], vec![], vec![], vec![]);
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        GatewayProxy::new(
+            Arc::new(pool),
+            Arc::new(ArcSwap::from_pointee(config)),
+            Arc::new(Mutex::new(ConnectionTracker::new())),
+            tx,
+        )
+    }
+
+    #[tokio::test]
+    async fn check_rate_limit_allows_within_limit() {
+        let proxy = make_test_proxy();
+        let route_id = Uuid::new_v4();
+
+        let result = proxy.check_rate_limit(&route_id, "client1", 10);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 9); // 10 - 1 = 9 remaining
+    }
+
+    #[tokio::test]
+    async fn check_rate_limit_blocks_over_limit() {
+        let proxy = make_test_proxy();
+        let route_id = Uuid::new_v4();
+
+        // 2 rps limit — third request should be blocked
+        let r1 = proxy.check_rate_limit(&route_id, "client1", 2);
+        assert!(r1.is_ok());
+        assert_eq!(r1.unwrap(), 1);
+
+        let r2 = proxy.check_rate_limit(&route_id, "client1", 2);
+        assert!(r2.is_ok());
+        assert_eq!(r2.unwrap(), 0);
+
+        let r3 = proxy.check_rate_limit(&route_id, "client1", 2);
+        assert!(r3.is_err());
+    }
+
+    #[tokio::test]
+    async fn check_rate_limit_separate_clients_independent() {
+        let proxy = make_test_proxy();
+        let route_id = Uuid::new_v4();
+
+        // 1 rps limit, different clients should be independent
+        let r1 = proxy.check_rate_limit(&route_id, "client1", 1);
+        let r2 = proxy.check_rate_limit(&route_id, "client2", 1);
+        assert!(r1.is_ok());
+        assert!(r2.is_ok());
+    }
+
+    #[tokio::test]
+    async fn check_rate_limit_separate_routes_independent() {
+        let proxy = make_test_proxy();
+        let route1 = Uuid::new_v4();
+        let route2 = Uuid::new_v4();
+
+        // 1 rps limit, different routes should be independent
+        let r1 = proxy.check_rate_limit(&route1, "client1", 1);
+        let r2 = proxy.check_rate_limit(&route2, "client1", 1);
+        assert!(r1.is_ok());
+        assert!(r2.is_ok());
+    }
+
+    #[tokio::test]
+    async fn check_rate_limit_returns_retry_after() {
+        let proxy = make_test_proxy();
+        let route_id = Uuid::new_v4();
+
+        // 1 rps limit
+        let _ = proxy.check_rate_limit(&route_id, "client1", 1);
+        let result = proxy.check_rate_limit(&route_id, "client1", 1);
+        assert!(result.is_err());
+        let retry_after = result.unwrap_err();
+        assert!(retry_after >= 1); // at least 1 second
+    }
+
+    #[tokio::test]
+    async fn new_ctx_has_default_values() {
+        let proxy = make_test_proxy();
+        let ctx = proxy.new_ctx();
+        assert!(ctx.route_id.is_none());
+        assert!(ctx.upstream_id.is_none());
+        assert!(ctx.upstream_target.is_none());
+        assert!(ctx.target_id.is_none());
+        assert!(!ctx.strip_prefix);
+        assert!(ctx.path_prefix.is_empty());
+        assert!(ctx.upstream_path_prefix.is_none());
+        assert!(!ctx.target_tls);
+        assert!(ctx.client_identity.is_none());
+    }
+
+    #[tokio::test]
+    async fn gateway_proxy_new_initializes_correctly() {
+        let proxy = make_test_proxy();
+        assert_eq!(
+            proxy.rr_counter.load(std::sync::atomic::Ordering::Relaxed),
+            0
+        );
     }
 }
 

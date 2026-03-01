@@ -12,6 +12,9 @@ mod metrics;
 mod router;
 mod service;
 
+#[cfg(test)]
+mod test_helpers;
+
 use service::GatewayProxy;
 use shared::config::AppConfig;
 

@@ -94,6 +94,77 @@ pub fn encode_metrics() -> String {
     String::from_utf8(buffer).unwrap()
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn init_registers_all_metrics() {
+        init();
+        // After init, all lazy statics should be initialized — verify by using them
+        REQUESTS_TOTAL
+            .with_label_values(&["test_init", "GET", "200"])
+            .inc();
+        assert!(
+            REQUESTS_TOTAL
+                .with_label_values(&["test_init", "GET", "200"])
+                .get()
+                >= 1.0
+        );
+    }
+
+    #[test]
+    fn encode_metrics_returns_prometheus_format() {
+        init();
+        // Create concrete metric instances so they appear in output
+        REQUESTS_TOTAL
+            .with_label_values(&["test_encode", "POST", "201"])
+            .inc();
+        REQUEST_DURATION
+            .with_label_values(&["test_encode", "GET"])
+            .observe(0.05);
+        UPSTREAM_ERRORS
+            .with_label_values(&["test_up", "test_tgt"])
+            .inc();
+        RATE_LIMIT_HITS
+            .with_label_values(&["test_route", "ip"])
+            .inc();
+        AUTH_FAILURES.with_label_values(&["test_route"]).inc();
+        UPSTREAM_HEALTH
+            .with_label_values(&["test_up", "test_tgt"])
+            .set(1.0);
+
+        let output = encode_metrics();
+        assert!(output.contains("gateway_requests_total"));
+        assert!(output.contains("gateway_request_duration_seconds"));
+        assert!(output.contains("gateway_upstream_errors_total"));
+        assert!(output.contains("gateway_rate_limit_hits_total"));
+        assert!(output.contains("gateway_auth_failures_total"));
+        assert!(output.contains("gateway_active_connections"));
+        assert!(output.contains("gateway_upstream_health"));
+    }
+
+    #[test]
+    fn encode_metrics_returns_valid_utf8() {
+        init();
+        let output = encode_metrics();
+        assert!(!output.is_empty());
+        // Should be valid text (already a String, but verify it's non-trivial)
+        assert!(output.contains("# HELP"));
+        assert!(output.contains("# TYPE"));
+    }
+
+    #[test]
+    fn active_connections_gauge_works() {
+        init();
+        let before = ACTIVE_CONNECTIONS.get();
+        ACTIVE_CONNECTIONS.inc();
+        assert_eq!(ACTIVE_CONNECTIONS.get(), before + 1.0);
+        ACTIVE_CONNECTIONS.dec();
+        assert_eq!(ACTIVE_CONNECTIONS.get(), before);
+    }
+}
+
 /// Start a lightweight HTTP server that serves /metrics on the given port.
 pub fn spawn_metrics_server(port: u16) {
     std::thread::spawn(move || {

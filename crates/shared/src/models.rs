@@ -21,6 +21,7 @@ pub struct Target {
     pub port: i32,
     pub weight: i32,
     pub healthy: bool,
+    pub tls: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -33,6 +34,9 @@ pub struct Route {
     pub methods: Option<Vec<String>>,
     pub upstream_id: Uuid,
     pub strip_prefix: bool,
+    pub upstream_path_prefix: Option<String>,
+    pub service_id: Option<Uuid>,
+    pub max_body_bytes: Option<i64>,
     pub active: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -73,4 +77,32 @@ pub struct RequestLog {
     pub client_ip: String,
     pub upstream_target: Option<String>,
     pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct Service {
+    pub id: Uuid,
+    pub namespace: String,
+    pub version: i32,
+    pub spec_url: String,
+    pub spec_hash: String,
+    pub upstream_id: Uuid,
+    pub route_id: Option<Uuid>,
+    pub description: String,
+    pub tags: Vec<String>,
+    pub status: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct HeaderRule {
+    pub id: Uuid,
+    pub route_id: Uuid,
+    pub phase: String,
+    pub action: String,
+    pub header_name: String,
+    pub header_value: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }

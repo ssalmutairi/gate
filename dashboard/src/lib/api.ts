@@ -34,6 +34,7 @@ export interface Target {
   port: number;
   weight: number;
   healthy: boolean;
+  tls: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -46,6 +47,9 @@ export interface Route {
   upstream_id: string;
   upstream_name?: string;
   strip_prefix: boolean;
+  upstream_path_prefix: string | null;
+  service_id: string | null;
+  max_body_bytes: number | null;
   active: boolean;
   created_at: string;
   updated_at: string;
@@ -156,5 +160,47 @@ export interface LogEntry {
 }
 export const getLogs = (params?: { page?: number; limit?: number; route_id?: string; status?: number; method?: string }) =>
   api.get<Paginated<LogEntry>>('/logs', { params }).then(r => r.data);
+
+// Services
+export interface Service {
+  id: string;
+  namespace: string;
+  version: number;
+  spec_url: string;
+  spec_hash: string;
+  upstream_id: string;
+  route_id: string | null;
+  description: string;
+  tags: string[];
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export const getServices = (params?: { search?: string; status?: string }) =>
+  api.get<Paginated<Service>>('/services', { params }).then(r => r.data.data);
+export const importService = (data: { url: string; namespace: string; description?: string; tags?: string[]; status?: string }) =>
+  api.post<Service>('/services/import', data).then(r => r.data);
+export const updateService = (id: string, data: { description?: string; tags?: string[]; status?: string }) =>
+  api.put<Service>(`/services/${id}`, data).then(r => r.data);
+export const deleteService = (id: string) => api.delete(`/services/${id}`);
+
+// Header Rules
+export interface HeaderRule {
+  id: string;
+  route_id: string;
+  phase: string;
+  action: string;
+  header_name: string;
+  header_value: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export const getHeaderRules = (routeId: string) =>
+  api.get<HeaderRule[]>(`/routes/${routeId}/header-rules`).then(r => r.data);
+export const createHeaderRule = (routeId: string, data: { phase?: string; action: string; header_name: string; header_value?: string }) =>
+  api.post<HeaderRule>(`/routes/${routeId}/header-rules`, data).then(r => r.data);
+export const deleteHeaderRule = (id: string) => api.delete(`/header-rules/${id}`);
 
 export default api;

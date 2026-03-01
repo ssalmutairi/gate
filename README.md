@@ -1,5 +1,10 @@
 # Gate
 
+![Coverage](https://img.shields.io/badge/coverage-96.8%25-brightgreen)
+![Tests](https://img.shields.io/badge/tests-117%20passed-brightgreen)
+![Rust](https://img.shields.io/badge/rust-1.93-orange)
+![License](https://img.shields.io/badge/license-Apache--2.0-blue)
+
 A high-performance API gateway built with Rust, featuring dynamic routing, load balancing, authentication, rate limiting, and a React dashboard.
 
 ## Architecture
@@ -176,6 +181,39 @@ Metrics exposed:
 - `gateway_auth_failures_total` - Authentication failures
 - `gateway_active_connections` - Current active connections
 - `gateway_upstream_health` - Target health status (1=healthy, 0=unhealthy)
+
+## Testing
+
+```bash
+# Rust proxy unit tests (60 tests)
+cargo test -p proxy
+
+# Admin integration tests (33 tests, requires PostgreSQL)
+cargo test -p admin -- --test-threads=1
+
+# Dashboard tests (48 tests)
+cd dashboard && npm test
+
+# E2E tests (9 scenarios)
+bash tests/e2e/run.sh
+
+# Coverage report
+bash scripts/coverage.sh
+```
+
+### Coverage
+
+| Component | Lines | Functions |
+|-----------|-------|-----------|
+| **Proxy (unit + E2E)** | **96.8%** | **95.9%** |
+| `router.rs` | 100% | 100% |
+| `lb.rs` | 99.1% | 100% |
+| `main.rs` | 98.7% | 100% |
+| `logging.rs` | 96.2% | 100% |
+| `service.rs` | 95.6% | 86.4% |
+| `config.rs` | 93.2% | 100% |
+| `metrics.rs` | 93.0% | 94.1% |
+| `health.rs` | 84.9% | 100% |
 
 ## Project Structure
 

@@ -59,7 +59,8 @@ pub async fn run_health_checks(
         }
 
         for target in &all_targets {
-            let url = format!("http://{}:{}/", target.host, target.port);
+            let scheme = if target.tls { "https" } else { "http" };
+            let url = format!("{}://{}:{}/", scheme, target.host, target.port);
 
             let state = states.entry(target.id).or_insert(TargetHealthState {
                 consecutive_failures: 0,

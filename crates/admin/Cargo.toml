@@ -21,3 +21,9 @@ sha2 = "0.10"
 rand = "0.8"
 hex = "0.4"
 tower-http = { version = "0.5", features = ["cors"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+url = "2"
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"

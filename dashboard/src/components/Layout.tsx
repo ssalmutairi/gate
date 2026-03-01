@@ -6,6 +6,7 @@ import {
   Key,
   Gauge,
   ScrollText,
+  Blocks,
   Menu,
   X,
 } from 'lucide-react';
@@ -13,6 +14,7 @@ import { useState } from 'react';
 
 const navItems = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
+  { path: '/services', label: 'Services', icon: Blocks },
   { path: '/routes', label: 'Routes', icon: Route },
   { path: '/upstreams', label: 'Upstreams', icon: Server },
   { path: '/api-keys', label: 'API Keys', icon: Key },

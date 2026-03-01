@@ -16,6 +16,8 @@ pub struct CreateRoute {
     pub methods: Option<Vec<String>>,
     pub upstream_id: Uuid,
     pub strip_prefix: Option<bool>,
+    pub upstream_path_prefix: Option<String>,
+    pub max_body_bytes: Option<i64>,
 }
 
 #[derive(Deserialize)]
@@ -25,6 +27,8 @@ pub struct UpdateRoute {
     pub methods: Option<Vec<String>>,
     pub upstream_id: Option<Uuid>,
     pub strip_prefix: Option<bool>,
+    pub upstream_path_prefix: Option<String>,
+    pub max_body_bytes: Option<Option<i64>>,
     pub active: Option<bool>,
 }
 
@@ -37,6 +41,9 @@ pub struct RouteResponse {
     pub upstream_id: Uuid,
     pub upstream_name: Option<String>,
     pub strip_prefix: bool,
+    pub upstream_path_prefix: Option<String>,
+    pub service_id: Option<Uuid>,
+    pub max_body_bytes: Option<i64>,
     pub active: bool,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
@@ -61,6 +68,9 @@ struct RouteWithUpstream {
     upstream_id: Uuid,
     upstream_name: Option<String>,
     strip_prefix: bool,
+    upstream_path_prefix: Option<String>,
+    service_id: Option<Uuid>,
+    max_body_bytes: Option<i64>,
     active: bool,
     created_at: chrono::DateTime<chrono::Utc>,
     updated_at: chrono::DateTime<chrono::Utc>,
@@ -76,6 +86,9 @@ impl From<RouteWithUpstream> for RouteResponse {
             upstream_id: r.upstream_id,
             upstream_name: r.upstream_name,
             strip_prefix: r.strip_prefix,
+            upstream_path_prefix: r.upstream_path_prefix,
+            service_id: r.service_id,
+            max_body_bytes: r.max_body_bytes,
             active: r.active,
             created_at: r.created_at,
             updated_at: r.updated_at,
@@ -99,8 +112,9 @@ pub async fn list_routes(
 
     let rows: Vec<RouteWithUpstream> = sqlx::query_as(
         r#"SELECT r.id, r.name, r.path_prefix, r.methods, r.upstream_id,
-                  u.name as upstream_name, r.strip_prefix, r.active,
-                  r.created_at, r.updated_at
+                  u.name as upstream_name, r.strip_prefix,
+                  r.upstream_path_prefix, r.service_id, r.max_body_bytes,
+                  r.active, r.created_at, r.updated_at
            FROM routes r
            LEFT JOIN upstreams u ON u.id = r.upstream_id
            ORDER BY r.created_at DESC
@@ -133,13 +147,15 @@ pub async fn create_route(
     let strip_prefix = body.strip_prefix.unwrap_or(false);
 
     let route: shared::models::Route = sqlx::query_as(
-        "INSERT INTO routes (name, path_prefix, methods, upstream_id, strip_prefix) VALUES ($1, $2, $3, $4, $5) RETURNING *",
+        "INSERT INTO routes (name, path_prefix, methods, upstream_id, strip_prefix, upstream_path_prefix, max_body_bytes) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *",
     )
     .bind(body.name.trim())
     .bind(&body.path_prefix)
     .bind(&body.methods)
     .bind(body.upstream_id)
     .bind(strip_prefix)
+    .bind(&body.upstream_path_prefix)
+    .bind(body.max_body_bytes)
     .fetch_one(&pool)
     .await?;
 
@@ -160,6 +176,9 @@ pub async fn create_route(
             upstream_id: route.upstream_id,
             upstream_name: upstream_name.map(|u| u.0),
             strip_prefix: route.strip_prefix,
+            upstream_path_prefix: route.upstream_path_prefix,
+            service_id: route.service_id,
+            max_body_bytes: route.max_body_bytes,
             active: route.active,
             created_at: route.created_at,
             updated_at: route.updated_at,
@@ -173,8 +192,9 @@ pub async fn get_route(
 ) -> Result<Json<RouteResponse>, AppError> {
     let row: RouteWithUpstream = sqlx::query_as(
         r#"SELECT r.id, r.name, r.path_prefix, r.methods, r.upstream_id,
-                  u.name as upstream_name, r.strip_prefix, r.active,
-                  r.created_at, r.updated_at
+                  u.name as upstream_name, r.strip_prefix,
+                  r.upstream_path_prefix, r.service_id, r.max_body_bytes,
+                  r.active, r.created_at, r.updated_at
            FROM routes r
            LEFT JOIN upstreams u ON u.id = r.upstream_id
            WHERE r.id = $1"#,
@@ -208,6 +228,16 @@ pub async fn update_route(
     };
     let upstream_id = body.upstream_id.unwrap_or(existing.upstream_id);
     let strip_prefix = body.strip_prefix.unwrap_or(existing.strip_prefix);
+    let upstream_path_prefix = if body.upstream_path_prefix.is_some() {
+        body.upstream_path_prefix
+    } else {
+        existing.upstream_path_prefix
+    };
+    let max_body_bytes = if let Some(mbb) = body.max_body_bytes {
+        mbb
+    } else {
+        existing.max_body_bytes
+    };
     let active = body.active.unwrap_or(existing.active);
 
     if !path_prefix.starts_with('/') {
@@ -215,13 +245,15 @@ pub async fn update_route(
     }
 
     let updated: shared::models::Route = sqlx::query_as(
-        "UPDATE routes SET name = $1, path_prefix = $2, methods = $3, upstream_id = $4, strip_prefix = $5, active = $6, updated_at = now() WHERE id = $7 RETURNING *",
+        "UPDATE routes SET name = $1, path_prefix = $2, methods = $3, upstream_id = $4, strip_prefix = $5, upstream_path_prefix = $6, max_body_bytes = $7, active = $8, updated_at = now() WHERE id = $9 RETURNING *",
     )
     .bind(&name)
     .bind(&path_prefix)
     .bind(&methods)
     .bind(upstream_id)
     .bind(strip_prefix)
+    .bind(&upstream_path_prefix)
+    .bind(max_body_bytes)
     .bind(active)
     .bind(id)
     .fetch_one(&pool)
@@ -241,6 +273,9 @@ pub async fn update_route(
         upstream_id: updated.upstream_id,
         upstream_name: upstream_name.map(|u| u.0),
         strip_prefix: updated.strip_prefix,
+        upstream_path_prefix: updated.upstream_path_prefix,
+        service_id: updated.service_id,
+        max_body_bytes: updated.max_body_bytes,
         active: updated.active,
         created_at: updated.created_at,
         updated_at: updated.updated_at,

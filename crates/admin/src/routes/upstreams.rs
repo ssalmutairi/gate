@@ -32,6 +32,7 @@ pub struct CreateTarget {
     pub host: String,
     pub port: i32,
     pub weight: Option<i32>,
+    pub tls: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -53,6 +54,7 @@ pub struct TargetResponse {
     pub port: i32,
     pub weight: i32,
     pub healthy: bool,
+    pub tls: bool,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
@@ -269,14 +271,16 @@ pub async fn add_target(
     }
 
     let weight = body.weight.unwrap_or(1);
+    let tls = body.tls.unwrap_or(false);
 
     let target: TargetResponse = sqlx::query_as(
-        "INSERT INTO targets (upstream_id, host, port, weight) VALUES ($1, $2, $3, $4) RETURNING *",
+        "INSERT INTO targets (upstream_id, host, port, weight, tls) VALUES ($1, $2, $3, $4, $5) RETURNING *",
     )
     .bind(upstream_id)
     .bind(body.host.trim())
     .bind(body.port)
     .bind(weight)
+    .bind(tls)
     .fetch_one(&pool)
     .await?;
 

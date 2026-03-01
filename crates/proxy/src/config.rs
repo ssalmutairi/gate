@@ -1,6 +1,6 @@
 use crate::router::GatewayConfig;
 use arc_swap::ArcSwap;
-use shared::models::{ApiKey, RateLimit, Route, Target, Upstream};
+use shared::models::{ApiKey, HeaderRule, RateLimit, Route, Target, Upstream};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -33,16 +33,22 @@ pub async fn load_config(pool: &PgPool) -> GatewayConfig {
         .await
         .unwrap_or_default();
 
+    let header_rules: Vec<HeaderRule> = sqlx::query_as("SELECT * FROM header_rules")
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default();
+
     tracing::info!(
         routes = routes.len(),
         upstreams = upstreams.len(),
         targets = targets.len(),
         api_keys = api_keys.len(),
         rate_limits = rate_limits.len(),
+        header_rules = header_rules.len(),
         "Config loaded from database"
     );
 
-    GatewayConfig::new(routes, upstreams, targets, api_keys, rate_limits)
+    GatewayConfig::new(routes, upstreams, targets, api_keys, rate_limits, header_rules)
 }
 
 /// Runs the config reload loop in a dedicated thread with its own runtime and DB pool.
@@ -81,6 +87,8 @@ pub fn spawn_config_reloader(
                             SELECT MAX(updated_at) FROM api_keys
                             UNION ALL
                             SELECT MAX(updated_at) FROM rate_limits
+                            UNION ALL
+                            SELECT MAX(updated_at) FROM header_rules
                         ) sub"#,
                     )
                     .fetch_optional(&pool)

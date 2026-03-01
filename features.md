@@ -37,15 +37,15 @@
 - [ ] Timeout controls — no upstream request timeout config
 - [ ] Traffic mirroring / shadowing
 - [ ] Fault injection
-- [~] Request size limiting — 1MB body limit on admin API only, not on proxy
+- [x] Request size limiting — per-route max_body_bytes on proxy + 1MB admin API limit
 
 ## 4) Transformation & Mediation
 
-- [~] Header modification — adds X-Forwarded-*, strips x-admin-token; no user-configurable rules
+- [x] Header modification — X-Forwarded-* + user-configurable header rules (set/add/remove, request/response phase)
 - [x] URL rewrite / redirect — strip_prefix + upstream_path_prefix in `service.rs`
 - [ ] Request / response body transformation
 - [ ] Protocol translation (REST ↔ gRPC)
-- [~] API versioning strategy — services have version field; no formal versioning strategy
+- [x] API versioning strategy — auto-incrementing versions with lifecycle status (alpha/beta/stable/deprecated)
 - [ ] Response aggregation
 - [ ] API composition / orchestration
 
@@ -96,7 +96,7 @@
 ## 10) API Management Features
 
 - [ ] Developer portal
-- [~] API catalog — services tracked with namespace/version, but no formal catalog
+- [x] API catalog — services with description, tags, status, search/filter, edit UI
 - [x] API key management UI — full CRUD in React dashboard
 - [x] Usage reporting — stats endpoint + dashboard (requests/day, error rate, p95)
 - [ ] Monetization / billing
@@ -146,19 +146,19 @@
 |----------|:----:|:-------:|:----:|
 | 1) Traffic Management | 4 | 0 | 7 |
 | 2) Security & Access Control | 2 | 0 | 9 |
-| 3) Policy & Traffic Shaping | 1 | 1 | 5 |
-| 4) Transformation & Mediation | 1 | 2 | 4 |
+| 3) Policy & Traffic Shaping | 2 | 0 | 5 |
+| 4) Transformation & Mediation | 3 | 0 | 4 |
 | 5) Observability & Monitoring | 4 | 0 | 2 |
 | 6) Extensibility & Plugin System | 0 | 0 | 5 |
 | 7) Deployment & Configuration | 2 | 0 | 5 |
 | 8) Scalability & HA | 0 | 0 | 5 |
 | 9) Kubernetes & Cloud Native | 0 | 0 | 6 |
-| 10) API Management | 2 | 1 | 3 |
+| 10) API Management | 3 | 0 | 3 |
 | 11) Protocol Support | 1 | 0 | 6 |
 | 12) Caching & Performance | 2 | 0 | 4 |
 | 13) Developer Experience | 0 | 0 | 5 |
 | 14) AI / LLM Gateway | 0 | 0 | 6 |
-| **TOTAL** | **19** | **4** | **68** |
+| **TOTAL** | **23** | **0** | **68** |
 
 ### Core Strengths
 - Path-based routing with longest-prefix matching
