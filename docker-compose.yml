@@ -1,0 +1,72 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: gate
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gate}
+      POSTGRES_DB: gate
+    ports:
+      - "${DB_PORT:-5555}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gate -d gate"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  gateway:
+    build: .
+    ports:
+      - "${PROXY_PORT:-8080}:8080"
+      - "${ADMIN_PORT:-9000}:9000"
+      - "${METRICS_PORT:-9091}:9091"
+    environment:
+      DATABASE_URL: postgres://gate:${POSTGRES_PASSWORD:-gate}@postgres:5432/gate
+      PROXY_PORT: 8080
+      ADMIN_PORT: 9000
+      ADMIN_BIND_ADDR: 0.0.0.0
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-changeme}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      CONFIG_POLL_INTERVAL_SECS: ${CONFIG_POLL_INTERVAL_SECS:-5}
+      HEALTH_CHECK_INTERVAL_SECS: ${HEALTH_CHECK_INTERVAL_SECS:-10}
+      METRICS_PORT: 9091
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  dashboard:
+    build: ./dashboard
+    ports:
+      - "3000:80"
+    depends_on:
+      - gateway
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    depends_on:
+      - gateway
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+    depends_on:
+      - prometheus
+
+volumes:
+  pgdata:

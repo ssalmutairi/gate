@@ -1,0 +1,95 @@
+{
+  "dashboard": {
+    "title": "Gate - Traffic Overview",
+    "uid": "gate-traffic",
+    "timezone": "browser",
+    "refresh": "10s",
+    "panels": [
+      {
+        "title": "Requests per Second",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+        "targets": [
+          {
+            "expr": "rate(gateway_requests_total[1m])",
+            "legendFormat": "{{route}} {{method}} {{status}}"
+          }
+        ]
+      },
+      {
+        "title": "Error Rate",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+        "targets": [
+          {
+            "expr": "sum(rate(gateway_requests_total{status=~\"4..|5..\"}[5m])) / sum(rate(gateway_requests_total[5m])) * 100",
+            "legendFormat": "Error Rate %"
+          }
+        ]
+      },
+      {
+        "title": "Latency Percentiles",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, rate(gateway_request_duration_seconds_bucket[5m]))",
+            "legendFormat": "p50"
+          },
+          {
+            "expr": "histogram_quantile(0.95, rate(gateway_request_duration_seconds_bucket[5m]))",
+            "legendFormat": "p95"
+          },
+          {
+            "expr": "histogram_quantile(0.99, rate(gateway_request_duration_seconds_bucket[5m]))",
+            "legendFormat": "p99"
+          }
+        ]
+      },
+      {
+        "title": "Active Connections",
+        "type": "stat",
+        "gridPos": { "h": 4, "w": 6, "x": 12, "y": 8 },
+        "targets": [
+          {
+            "expr": "gateway_active_connections",
+            "legendFormat": "Active"
+          }
+        ]
+      },
+      {
+        "title": "Auth Failures",
+        "type": "timeseries",
+        "gridPos": { "h": 4, "w": 6, "x": 18, "y": 8 },
+        "targets": [
+          {
+            "expr": "rate(gateway_auth_failures_total[5m])",
+            "legendFormat": "{{route}}"
+          }
+        ]
+      },
+      {
+        "title": "Rate Limit Hits",
+        "type": "timeseries",
+        "gridPos": { "h": 4, "w": 12, "x": 12, "y": 12 },
+        "targets": [
+          {
+            "expr": "rate(gateway_rate_limit_hits_total[5m])",
+            "legendFormat": "{{route}} ({{limit_by}})"
+          }
+        ]
+      },
+      {
+        "title": "Upstream Health",
+        "type": "stat",
+        "gridPos": { "h": 4, "w": 12, "x": 0, "y": 16 },
+        "targets": [
+          {
+            "expr": "gateway_upstream_health",
+            "legendFormat": "{{upstream}} / {{target}}"
+          }
+        ]
+      }
+    ]
+  }
+}
