@@ -18,6 +18,7 @@ Thumbs.db
 # Node (dashboard)
 dashboard/node_modules/
 dashboard/dist/
+dashboard/coverage/
 
 # Docker
 *.log
