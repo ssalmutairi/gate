@@ -36,14 +36,6 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  dashboard:
-    build: ./dashboard
-    ports:
-      - "3000:80"
-    depends_on:
-      - gateway
-    restart: unless-stopped
-
   prometheus:
     image: prom/prometheus:latest
     ports:

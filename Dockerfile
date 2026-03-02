@@ -1,4 +1,13 @@
-# Stage 1: Build
+# Stage 1: Build dashboard
+FROM node:22-alpine AS dashboard-builder
+
+WORKDIR /app/dashboard
+COPY dashboard/package.json dashboard/package-lock.json ./
+RUN npm ci
+COPY dashboard/ ./
+RUN npm run build
+
+# Stage 2: Build Rust binaries
 FROM rust:1-slim-bookworm AS builder
 
 RUN apt-get update && apt-get install -y pkg-config libssl-dev cmake && rm -rf /var/lib/apt/lists/*
@@ -7,10 +16,11 @@ WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY crates/ crates/
 COPY migrations/ migrations/
+COPY --from=dashboard-builder /app/dashboard/dist dashboard/dist
 
 RUN cargo build --release --bin proxy --bin admin
 
-# Stage 2: Runtime
+# Stage 3: Runtime
 FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y ca-certificates curl && rm -rf /var/lib/apt/lists/*

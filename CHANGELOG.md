@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-03-02
+
+### Added
+
+- **Embedded Dashboard** — Dashboard UI is now compiled directly into the admin binary via `rust-embed`; `gate-admin` serves both API and UI on a single port
+- **Cross-Platform Releases** — GitHub Actions workflow builds precompiled binaries for Linux (x86_64, aarch64) and macOS (x86_64, aarch64) on every version tag push
+- **Install Script** — One-liner `curl | bash` installer with OS/arch detection, SHA256 checksum verification, and configurable install directory
+- **Cross-Compilation Support** — `Cross.toml` config for building aarch64-linux targets with cmake support for Pingora
+
+### Changed
+
+- **Single-Binary Admin** — Admin binary now serves the dashboard on `/` as a fallback; no separate nginx container needed
+- **Docker Simplified** — Dockerfile uses a Node.js build stage to embed the dashboard; removed standalone `dashboard` service from `docker-compose.yml`
+- **Dynamic Version Banner** — Admin startup banner now reads version from `Cargo.toml` via `env!("CARGO_PKG_VERSION")` instead of a hardcoded string
+
 ## [1.2.0] - 2026-03-02
 
 ### Added

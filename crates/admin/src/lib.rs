@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod dashboard;
 pub mod db;
 pub mod errors;
 pub mod routes;
@@ -105,4 +106,5 @@ pub fn build_router(pool: PgPool) -> Router {
         .layer(cors)
         .layer(DefaultBodyLimit::max(1024 * 1024))
         .with_state(pool)
+        .fallback(dashboard::dashboard_handler)
 }
