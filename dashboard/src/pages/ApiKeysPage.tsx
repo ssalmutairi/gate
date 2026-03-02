@@ -83,7 +83,7 @@ export default function ApiKeysPage() {
     e.preventDefault();
     createMut.mutate({
       name,
-      route_id: routeId || undefined,
+      route_id: routeId && routeId !== '__global__' ? routeId : undefined,
       expires_at: expiresAt || undefined,
     });
   };

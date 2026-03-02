@@ -117,6 +117,7 @@ impl CircuitBreaker {
     }
 
     /// Get the current state of a target's circuit breaker.
+    #[cfg(test)]
     pub fn get_state(&self, target_id: &Uuid) -> State {
         let targets = self.targets.read().unwrap_or_else(|e| e.into_inner());
         targets

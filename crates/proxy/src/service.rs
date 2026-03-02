@@ -11,7 +11,6 @@ use pingora::prelude::*;
 use pingora::proxy::{ProxyHttp, Session};
 use pingora_cache::MemCache;
 use sha2::{Digest, Sha256};
-use sqlx::PgPool;
 use std::sync::atomic::{AtomicUsize, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -29,6 +28,7 @@ const RATE_LIMITER_CLEANUP_INTERVAL: u64 = 1000;
 ///
 /// This is the pure-logic core of `upstream_request_filter`'s path rewriting.
 /// Extracted so it can be unit-tested without a Pingora `Session`.
+#[cfg(test)]
 pub(crate) fn rewrite_path(
     original_path: &str,
     prefix: &str,
@@ -107,7 +107,6 @@ fn unpack(val: u64) -> (u32, u32) {
 }
 
 pub struct GatewayProxy {
-    pub db_pool: Arc<PgPool>,
     pub config: Arc<ArcSwap<GatewayConfig>>,
     pub rr_counter: AtomicUsize,
     /// Rate limiter state: key = "{route_id}:{client_identity}", value = packed (window_id, count).
@@ -128,7 +127,6 @@ pub struct GatewayProxy {
 
 impl GatewayProxy {
     pub fn new(
-        db_pool: Arc<PgPool>,
         config: Arc<ArcSwap<GatewayConfig>>,
         conn_tracker: Arc<Mutex<ConnectionTracker>>,
         log_sender: tokio::sync::mpsc::Sender<RequestLogEntry>,
@@ -136,7 +134,6 @@ impl GatewayProxy {
         circuit_breaker: Arc<CircuitBreaker>,
     ) -> Self {
         Self {
-            db_pool,
             config,
             rr_counter: AtomicUsize::new(0),
             rate_limiters: DashMap::new(),
@@ -856,13 +853,9 @@ mod tests {
     use sqlx::postgres::PgPoolOptions;
 
     fn make_test_proxy() -> GatewayProxy {
-        let pool = PgPoolOptions::new()
-            .connect_lazy("postgres://fake:fake@localhost:1/fake")
-            .unwrap();
         let config = GatewayConfig::new(vec![], vec![], vec![], vec![], vec![], vec![], vec![]);
         let (tx, _rx) = tokio::sync::mpsc::channel(100);
         GatewayProxy::new(
-            Arc::new(pool),
             Arc::new(ArcSwap::from_pointee(config)),
             Arc::new(Mutex::new(ConnectionTracker::new())),
             tx,
@@ -1045,13 +1038,9 @@ mod tests {
 
     #[tokio::test]
     async fn proxy_new_stores_trusted_proxies() {
-        let pool = PgPoolOptions::new()
-            .connect_lazy("postgres://fake:fake@localhost:1/fake")
-            .unwrap();
         let config = GatewayConfig::new(vec![], vec![], vec![], vec![], vec![], vec![], vec![]);
         let (tx, _rx) = tokio::sync::mpsc::channel(100);
         let proxy = GatewayProxy::new(
-            Arc::new(pool),
             Arc::new(ArcSwap::from_pointee(config)),
             Arc::new(Mutex::new(ConnectionTracker::new())),
             tx,

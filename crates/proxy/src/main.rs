@@ -44,7 +44,7 @@ fn main() {
         .expect("Failed to build tokio runtime for setup");
 
     // Initialize DB pool and load initial config
-    let (db_pool, gateway_config) = rt.block_on(async {
+    let gateway_config = rt.block_on(async {
         let pool = PgPoolOptions::new()
             .max_connections(10)
             .acquire_timeout(std::time::Duration::from_secs(5))
@@ -55,7 +55,7 @@ fn main() {
         tracing::info!("Database connected");
 
         let cfg = config::load_config(&pool).await;
-        (Arc::new(pool), Arc::new(ArcSwap::from_pointee(cfg)))
+        Arc::new(ArcSwap::from_pointee(cfg))
     });
 
     // Shared connection tracker for least-connections algorithm
@@ -125,7 +125,6 @@ fn main() {
 
     // Create the proxy service
     let proxy = GatewayProxy::new(
-        db_pool,
         gateway_config,
         conn_tracker,
         log_sender,

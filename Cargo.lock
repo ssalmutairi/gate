@@ -19,7 +19,7 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
 name = "admin"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2373,7 +2373,7 @@ checksum = "106dd99e98437432fed6519dedecfade6a06a73bb7b2a1e019fdd2bee5778d94"
 
 [[package]]
 name = "proxy"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -3041,7 +3041,7 @@ dependencies = [
 
 [[package]]
 name = "shared"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "chrono",
  "dotenvy",

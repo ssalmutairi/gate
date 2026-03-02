@@ -176,13 +176,6 @@ impl GatewayConfig {
         self.ip_rules.get(route_id)
     }
 
-    /// Get circuit breaker config for an upstream: (threshold, duration_secs).
-    pub fn get_upstream_cb_config(&self, upstream_id: &Uuid) -> Option<(i32, i32)> {
-        self.upstreams.get(upstream_id).and_then(|u| {
-            u.circuit_breaker_threshold
-                .map(|t| (t, u.circuit_breaker_duration_secs))
-        })
-    }
 }
 
 /// Check if a host matches a pattern. Supports exact match and wildcard `*.example.com`.
