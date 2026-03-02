@@ -278,7 +278,7 @@ STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${PROXY_URL}/echo/" 2>/dev/null
 assert_status "GET /echo/ without key returns 401" "401" "$STATUS"
 
 # With key → 200
-STATUS=$(curl -sf -o /dev/null -w "%{http_code}" -H "X-API-Key: ${API_KEY}" \
+STATUS=$(curl -sf -o /dev/null -w "%{http_code}" -H "Authorization: Bearer ${API_KEY}" \
     "${PROXY_URL}/echo/" 2>/dev/null || echo "000")
 assert_status "GET /echo/ with valid key returns 200" "200" "$STATUS"
 
@@ -294,11 +294,11 @@ admin_curl -sf -X POST "${ADMIN_URL}/admin/rate-limits" \
 sleep "$RELOAD_WAIT"
 
 # Fire 3 requests rapidly — third should be rate limited (429)
-STATUS1=$(curl -s -o /dev/null -w "%{http_code}" -H "X-API-Key: ${API_KEY}" \
+STATUS1=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer ${API_KEY}" \
     "${PROXY_URL}/echo/" 2>/dev/null || echo "000")
-STATUS2=$(curl -s -o /dev/null -w "%{http_code}" -H "X-API-Key: ${API_KEY}" \
+STATUS2=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer ${API_KEY}" \
     "${PROXY_URL}/echo/" 2>/dev/null || echo "000")
-STATUS3=$(curl -s -o /dev/null -w "%{http_code}" -H "X-API-Key: ${API_KEY}" \
+STATUS3=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer ${API_KEY}" \
     "${PROXY_URL}/echo/" 2>/dev/null || echo "000")
 
 # At least one of the last two should be 429
