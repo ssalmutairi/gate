@@ -7,7 +7,7 @@
 - [x] Load balancing (round-robin, least connections, weighted) — all 3 in `lb.rs`
 - [ ] Service discovery integration — static DB-driven targets only
 - [x] Health checks (active) — configurable interval + thresholds in `health.rs`
-- [ ] Health checks (passive)
+- [x] Health checks (passive) — circuit breaker tracks 5xx responses in `upstream_response_filter`
 - [ ] Canary / blue-green routing
 - [x] HTTP / HTTPS proxy — per-target `tls` flag for upstream HTTPS
 - [ ] WebSocket support
@@ -23,18 +23,18 @@
 - [ ] Mutual TLS (mTLS)
 - [ ] IP allowlist / denylist
 - [ ] Role-Based Access Control (RBAC)
-- [x] Rate limiting / throttling — sliding 1s window, per-route, by IP or API key
+- [x] Rate limiting / throttling — fixed-window 1s counter (lock-free DashMap + atomic CAS), per-route, by IP or API key
 - [ ] Quotas / usage limits — per-minute/hour fields exist in DB but not enforced
 - [ ] Bot protection
 - [ ] Web Application Firewall (WAF)
 
 ## 3) Policy & Traffic Shaping
 
-- [x] Rate limiting strategies (local) — in-memory sliding window
+- [x] Rate limiting strategies (local) — in-memory fixed-window counter with lock-free DashMap + atomic CAS
 - [ ] Rate limiting strategies (distributed) — single-instance only
-- [ ] Circuit breaker
-- [ ] Retries with backoff
-- [ ] Timeout controls — no upstream request timeout config
+- [x] Circuit breaker — per-target state machine (closed/open/half-open) in `circuit_breaker.rs`
+- [x] Retries — up to 3 retries per route on connection failure via `fail_to_connect`
+- [x] Timeout controls — per-route `timeout_ms` for connect/read/write timeouts with sensible defaults
 - [ ] Traffic mirroring / shadowing
 - [ ] Fault injection
 - [x] Request size limiting — per-route max_body_bytes on proxy + 1MB admin API limit
@@ -105,7 +105,7 @@
 ## 11) Protocol Support
 
 - [x] HTTP/1.1 — Pingora-based proxy
-- [ ] HTTP/2 — not explicitly enabled
+- [x] HTTP/2 — enabled for TLS upstreams via ALPN negotiation
 - [ ] HTTP/3 (QUIC)
 - [ ] gRPC
 - [ ] WebSockets
@@ -127,7 +127,7 @@
 - [ ] API mocking
 - [ ] OpenAPI validation — import only, no request/response validation
 - [ ] Testing hooks
-- [ ] CI/CD integration
+- [x] CI/CD integration — GitHub Actions release workflow with multi-platform builds
 
 ## 14) AI / LLM Gateway (Optional Modern Features)
 
@@ -144,9 +144,9 @@
 
 | Category | Done | Partial | Todo |
 |----------|:----:|:-------:|:----:|
-| 1) Traffic Management | 4 | 0 | 7 |
+| 1) Traffic Management | 5 | 0 | 6 |
 | 2) Security & Access Control | 2 | 0 | 9 |
-| 3) Policy & Traffic Shaping | 2 | 0 | 5 |
+| 3) Policy & Traffic Shaping | 5 | 0 | 2 |
 | 4) Transformation & Mediation | 3 | 0 | 4 |
 | 5) Observability & Monitoring | 4 | 0 | 2 |
 | 6) Extensibility & Plugin System | 0 | 0 | 5 |
@@ -154,18 +154,20 @@
 | 8) Scalability & HA | 0 | 0 | 5 |
 | 9) Kubernetes & Cloud Native | 0 | 0 | 6 |
 | 10) API Management | 3 | 0 | 3 |
-| 11) Protocol Support | 1 | 0 | 6 |
+| 11) Protocol Support | 2 | 0 | 5 |
 | 12) Caching & Performance | 2 | 0 | 4 |
-| 13) Developer Experience | 0 | 0 | 5 |
+| 13) Developer Experience | 1 | 0 | 4 |
 | 14) AI / LLM Gateway | 0 | 0 | 6 |
-| **TOTAL** | **23** | **0** | **68** |
+| **TOTAL** | **29** | **0** | **62** |
 
 ### Core Strengths
 - Path-based routing with longest-prefix matching
 - 3 load-balancing algorithms (RR, weighted RR, least-conn)
-- Active health checks with thresholds
+- Active + passive health checks with thresholds
 - API key auth (SHA-256, constant-time comparison, expiry, route-scoped)
-- Rate limiting (sliding window, per-route)
+- Rate limiting (lock-free fixed-window, per-route, DashMap + atomic CAS)
+- Circuit breaker with per-target state machine (closed/open/half-open)
+- Retries (up to 3 per route) with configurable per-route timeouts
 - Full Admin API with CRUD for all resources
 - Hot reload via DB polling (zero-downtime config changes)
 - Prometheus metrics (7 metrics) + Grafana dashboard
@@ -173,5 +175,6 @@
 - React admin dashboard with stats
 - OpenAPI/Swagger import with namespacing
 - Docker Compose deployment with full observability stack
-- HTTP/HTTPS upstream proxying (per-target TLS)
+- HTTP/1.1 + HTTP/2 upstream proxying (per-target TLS with ALPN)
 - URL rewriting (strip prefix + upstream path prefix)
+- CI/CD with GitHub Actions multi-platform release builds
