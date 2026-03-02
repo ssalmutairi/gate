@@ -45,7 +45,7 @@ export default function ApiKeysPage() {
 
   // Form
   const [name, setName] = useState('');
-  const [routeId, setRouteId] = useState('');
+  const [routeId, setRouteId] = useState('__global__');
   const [expiresAt, setExpiresAt] = useState('');
 
   const createMut = useMutation({
@@ -53,8 +53,8 @@ export default function ApiKeysPage() {
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['apiKeys'] });
       setModalOpen(false);
-      if (data.plaintext_key) {
-        setCreatedKey(data.plaintext_key);
+      if (data.key) {
+        setCreatedKey(data.key);
       }
       toast.success('API key created');
     },
@@ -109,7 +109,7 @@ export default function ApiKeysPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">API Keys</h1>
-        <Button onClick={() => { setName(''); setRouteId(''); setExpiresAt(''); setModalOpen(true); }}>
+        <Button onClick={() => { setName(''); setRouteId('__global__'); setExpiresAt(''); setModalOpen(true); }}>
           <Plus className="w-4 h-4 mr-1" /> Create API Key
         </Button>
       </div>
@@ -190,7 +190,7 @@ export default function ApiKeysPage() {
               <Label>Route Scope</Label>
               <Select value={routeId} onValueChange={setRouteId}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select scope" />
+                  <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   {routeOptions.map((opt) => (

@@ -76,7 +76,7 @@ export interface ApiKey {
   expires_at: string | null;
   created_at: string;
   updated_at: string;
-  plaintext_key?: string;
+  key?: string;
 }
 
 export interface RateLimit {
