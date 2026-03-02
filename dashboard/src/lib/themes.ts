@@ -1,0 +1,128 @@
+export type ThemeId = 'github-dark' | 'dracula' | 'nord' | 'light';
+
+export interface Theme {
+  id: ThemeId;
+  label: string;
+  isDark: boolean;
+  colors: Record<string, string>;
+}
+
+export const STORAGE_KEY = 'gate-theme';
+export const DEFAULT_THEME: ThemeId = 'github-dark';
+
+// CSS property names match unprefixed --* vars in :root (index.css)
+// Light theme has empty colors — it uses the :root defaults
+export const THEMES: Record<ThemeId, Theme> = {
+  'github-dark': {
+    id: 'github-dark',
+    label: 'GitHub Dark',
+    isDark: true,
+    colors: {
+      '--background': '#0d1117',
+      '--foreground': '#e6edf3',
+      '--muted': '#161b22',
+      '--muted-foreground': '#8b949e',
+      '--border': '#30363d',
+      '--input': '#30363d',
+      '--ring': '#58a6ff',
+      '--primary': '#58a6ff',
+      '--primary-foreground': '#ffffff',
+      '--secondary': '#161b22',
+      '--secondary-foreground': '#e6edf3',
+      '--accent': '#161b22',
+      '--accent-foreground': '#e6edf3',
+      '--destructive': '#f85149',
+      '--destructive-foreground': '#ffffff',
+      '--card': '#161b22',
+      '--card-foreground': '#e6edf3',
+      '--popover': '#161b22',
+      '--popover-foreground': '#e6edf3',
+      '--success': '#3fb950',
+      '--warning': '#d29922',
+    },
+  },
+  dracula: {
+    id: 'dracula',
+    label: 'Dracula',
+    isDark: true,
+    colors: {
+      '--background': '#282a36',
+      '--foreground': '#f8f8f2',
+      '--muted': '#343746',
+      '--muted-foreground': '#6272a4',
+      '--border': '#44475a',
+      '--input': '#44475a',
+      '--ring': '#bd93f9',
+      '--primary': '#bd93f9',
+      '--primary-foreground': '#282a36',
+      '--secondary': '#343746',
+      '--secondary-foreground': '#f8f8f2',
+      '--accent': '#343746',
+      '--accent-foreground': '#f8f8f2',
+      '--destructive': '#ff5555',
+      '--destructive-foreground': '#ffffff',
+      '--card': '#343746',
+      '--card-foreground': '#f8f8f2',
+      '--popover': '#343746',
+      '--popover-foreground': '#f8f8f2',
+      '--success': '#50fa7b',
+      '--warning': '#f1fa8c',
+    },
+  },
+  nord: {
+    id: 'nord',
+    label: 'Nord',
+    isDark: true,
+    colors: {
+      '--background': '#2e3440',
+      '--foreground': '#eceff4',
+      '--muted': '#3b4252',
+      '--muted-foreground': '#81a1c1',
+      '--border': '#434c5e',
+      '--input': '#434c5e',
+      '--ring': '#88c0d0',
+      '--primary': '#88c0d0',
+      '--primary-foreground': '#2e3440',
+      '--secondary': '#3b4252',
+      '--secondary-foreground': '#eceff4',
+      '--accent': '#3b4252',
+      '--accent-foreground': '#eceff4',
+      '--destructive': '#bf616a',
+      '--destructive-foreground': '#ffffff',
+      '--card': '#3b4252',
+      '--card-foreground': '#eceff4',
+      '--popover': '#3b4252',
+      '--popover-foreground': '#eceff4',
+      '--success': '#a3be8c',
+      '--warning': '#ebcb8b',
+    },
+  },
+  light: {
+    id: 'light',
+    label: 'Light',
+    isDark: false,
+    colors: {
+      '--background': '#fffaf5',
+      '--foreground': '#1a0f05',
+      '--muted': '#f5ebe0',
+      '--muted-foreground': '#8c6a4a',
+      '--border': '#e8d4b8',
+      '--input': '#e8d4b8',
+      '--ring': '#c2410c',
+      '--primary': '#c2410c',
+      '--primary-foreground': '#ffffff',
+      '--secondary': '#f5ebe0',
+      '--secondary-foreground': '#1a0f05',
+      '--accent': '#fef3e2',
+      '--accent-foreground': '#1a0f05',
+      '--destructive': '#dc2626',
+      '--destructive-foreground': '#ffffff',
+      '--card': '#ffffff',
+      '--card-foreground': '#1a0f05',
+      '--popover': '#ffffff',
+      '--popover-foreground': '#1a0f05',
+      '--success': '#16a34a',
+      '--warning': '#ca8a04',
+    },
+  },
+};

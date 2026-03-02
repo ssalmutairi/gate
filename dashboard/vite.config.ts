@@ -11,6 +11,7 @@ export default defineConfig({
     },
   },
   server: {
+    port: 3000,
     proxy: {
       '/admin': {
         target: process.env.VITE_API_TARGET || 'http://localhost:9001',

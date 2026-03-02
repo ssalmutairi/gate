@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { getService, getServiceSpec } from '../lib/api';
-import { Card, Badge } from '../components/ui';
+import { Card } from '../components/ui/card';
+import { Badge } from '../components/ui/badge';
 import { ArrowLeft, ChevronDown, ChevronRight, AlertCircle } from 'lucide-react';
 
 const STATUS_COLORS: Record<string, string> = {

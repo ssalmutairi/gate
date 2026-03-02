@@ -8,17 +8,28 @@ import {
   deleteRateLimit,
   type RateLimit,
 } from '../lib/api';
+import { Button } from '../components/ui/button';
+import { Card } from '../components/ui/card';
+import { Badge } from '../components/ui/badge';
+import { Input } from '../components/ui/input';
+import { Label } from '../components/ui/label';
 import {
-  Button,
-  Card,
-  Modal,
-  Input,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '../components/ui/dialog';
+import {
   Select,
-  Badge,
-  ConfirmDialog,
-  EmptyState,
-  toast,
-} from '../components/ui';
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../components/ui/select';
+import { EmptyState } from '../components/ui';
+import { toast } from 'sonner';
 import { Plus, Pencil, Trash2 } from 'lucide-react';
 
 export default function RateLimitsPage() {
@@ -61,9 +72,9 @@ export default function RateLimitsPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['rateLimits'] });
       setModalOpen(false);
-      toast('success', 'Rate limit created');
+      toast.success('Rate limit created');
     },
-    onError: (e: any) => toast('error', e.response?.data?.error ?? 'Failed'),
+    onError: (e: any) => toast.error(e.response?.data?.error ?? 'Failed'),
   });
 
   const updateMut = useMutation({
@@ -72,9 +83,9 @@ export default function RateLimitsPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['rateLimits'] });
       setModalOpen(false);
-      toast('success', 'Rate limit updated');
+      toast.success('Rate limit updated');
     },
-    onError: (e: any) => toast('error', e.response?.data?.error ?? 'Failed'),
+    onError: (e: any) => toast.error(e.response?.data?.error ?? 'Failed'),
   });
 
   const deleteMut = useMutation({
@@ -82,9 +93,9 @@ export default function RateLimitsPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['rateLimits'] });
       setDeleting(null);
-      toast('success', 'Rate limit deleted');
+      toast.success('Rate limit deleted');
     },
-    onError: (e: any) => toast('error', e.response?.data?.error ?? 'Failed'),
+    onError: (e: any) => toast.error(e.response?.data?.error ?? 'Failed'),
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -169,45 +180,72 @@ export default function RateLimitsPage() {
       </Card>
 
       {/* Create/Edit Modal */}
-      <Modal
-        open={modalOpen}
-        onClose={() => setModalOpen(false)}
-        title={editing ? 'Edit Rate Limit' : 'Create Rate Limit'}
-      >
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <Select
-            label="Route"
-            value={routeId}
-            onChange={(e) => setRouteId(e.target.value)}
-            options={routes.data?.map((r) => ({ value: r.id, label: r.name })) ?? []}
-          />
-          <Input label="Requests per second" type="number" value={rps} onChange={(e) => setRps(e.target.value)} min={1} required />
-          <Input label="Requests per minute (optional)" type="number" value={rpm} onChange={(e) => setRpm(e.target.value)} min={1} />
-          <Input label="Requests per hour (optional)" type="number" value={rph} onChange={(e) => setRph(e.target.value)} min={1} />
-          <Select
-            label="Limit By"
-            value={limitBy}
-            onChange={(e) => setLimitBy(e.target.value)}
-            options={[
-              { value: 'ip', label: 'IP Address' },
-              { value: 'api_key', label: 'API Key' },
-            ]}
-          />
-          <div className="flex justify-end gap-2 pt-2">
-            <Button variant="secondary" type="button" onClick={() => setModalOpen(false)}>Cancel</Button>
-            <Button type="submit">{editing ? 'Update' : 'Create'}</Button>
-          </div>
-        </form>
-      </Modal>
+      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editing ? 'Edit Rate Limit' : 'Create Rate Limit'}</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-1">
+              <Label>Route</Label>
+              <Select value={routeId} onValueChange={setRouteId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select route" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(routes.data ?? []).map((r) => (
+                    <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label>Requests per second</Label>
+              <Input type="number" value={rps} onChange={(e) => setRps(e.target.value)} min={1} required />
+            </div>
+            <div className="space-y-1">
+              <Label>Requests per minute (optional)</Label>
+              <Input type="number" value={rpm} onChange={(e) => setRpm(e.target.value)} min={1} />
+            </div>
+            <div className="space-y-1">
+              <Label>Requests per hour (optional)</Label>
+              <Input type="number" value={rph} onChange={(e) => setRph(e.target.value)} min={1} />
+            </div>
+            <div className="space-y-1">
+              <Label>Limit By</Label>
+              <Select value={limitBy} onValueChange={setLimitBy}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ip">IP Address</SelectItem>
+                  <SelectItem value="api_key">API Key</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <DialogFooter>
+              <Button variant="secondary" type="button" onClick={() => setModalOpen(false)}>Cancel</Button>
+              <Button type="submit">{editing ? 'Update' : 'Create'}</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {/* Delete Confirmation */}
-      <ConfirmDialog
-        open={!!deleting}
-        onClose={() => setDeleting(null)}
-        onConfirm={() => deleting && deleteMut.mutate(deleting.id)}
-        title="Delete Rate Limit"
-        message={`Delete rate limit for route "${deleting ? getRouteName(deleting.route_id) : ''}"?`}
-      />
+      <Dialog open={!!deleting} onOpenChange={(open) => !open && setDeleting(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Rate Limit</DialogTitle>
+            <DialogDescription>
+              Delete rate limit for route "{deleting ? getRouteName(deleting.route_id) : ''}"?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setDeleting(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={() => deleting && deleteMut.mutate(deleting.id)}>Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

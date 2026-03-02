@@ -8,17 +8,28 @@ import {
   deleteRoute,
   type Route,
 } from '../lib/api';
+import { Button } from '../components/ui/button';
+import { Card } from '../components/ui/card';
+import { Badge } from '../components/ui/badge';
+import { Input } from '../components/ui/input';
+import { Label } from '../components/ui/label';
 import {
-  Button,
-  Card,
-  Modal,
-  Input,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '../components/ui/dialog';
+import {
   Select,
-  Badge,
-  ConfirmDialog,
-  EmptyState,
-  toast,
-} from '../components/ui';
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../components/ui/select';
+import { EmptyState } from '../components/ui';
+import { toast } from 'sonner';
 import { Plus, Pencil, Trash2 } from 'lucide-react';
 
 const ALL_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
@@ -66,9 +77,9 @@ export default function RoutesPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['routes'] });
       setModalOpen(false);
-      toast('success', 'Route created');
+      toast.success('Route created');
     },
-    onError: (e: any) => toast('error', e.response?.data?.error ?? 'Failed to create route'),
+    onError: (e: any) => toast.error(e.response?.data?.error ?? 'Failed to create route'),
   });
 
   const updateMut = useMutation({
@@ -77,9 +88,9 @@ export default function RoutesPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['routes'] });
       setModalOpen(false);
-      toast('success', 'Route updated');
+      toast.success('Route updated');
     },
-    onError: (e: any) => toast('error', e.response?.data?.error ?? 'Failed to update route'),
+    onError: (e: any) => toast.error(e.response?.data?.error ?? 'Failed to update route'),
   });
 
   const deleteMut = useMutation({
@@ -87,9 +98,9 @@ export default function RoutesPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['routes'] });
       setDeleting(null);
-      toast('success', 'Route deleted');
+      toast.success('Route deleted');
     },
-    onError: (e: any) => toast('error', e.response?.data?.error ?? 'Failed to delete route'),
+    onError: (e: any) => toast.error(e.response?.data?.error ?? 'Failed to delete route'),
   });
 
   const toggleActive = useMutation({
@@ -97,7 +108,7 @@ export default function RoutesPage() {
       updateRoute(id, { active }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['routes'] });
-      toast('success', 'Route status updated');
+      toast.success('Route status updated');
     },
   });
 
@@ -208,82 +219,100 @@ export default function RoutesPage() {
       </Card>
 
       {/* Create/Edit Modal */}
-      <Modal
-        open={modalOpen}
-        onClose={() => setModalOpen(false)}
-        title={editing ? 'Edit Route' : 'Create Route'}
-      >
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} required />
-          <Input
-            label="Path Prefix"
-            value={pathPrefix}
-            onChange={(e) => setPathPrefix(e.target.value)}
-            placeholder="/api/v1"
-            required
-          />
-          <div className="space-y-1">
-            <label className="text-sm font-medium">Methods (empty = all)</label>
-            <div className="flex gap-2 flex-wrap">
-              {ALL_METHODS.map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() => toggleMethod(m)}
-                  className={`px-2 py-1 text-xs rounded border cursor-pointer ${
-                    methods.includes(m)
-                      ? 'bg-primary text-primary-foreground border-primary'
-                      : 'border-border hover:bg-muted'
-                  }`}
-                >
-                  {m}
-                </button>
-              ))}
+      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editing ? 'Edit Route' : 'Create Route'}</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-1">
+              <Label>Name</Label>
+              <Input value={name} onChange={(e) => setName(e.target.value)} required />
             </div>
-          </div>
-          <Select
-            label="Upstream"
-            value={upstreamId}
-            onChange={(e) => setUpstreamId(e.target.value)}
-            options={
-              upstreams.data?.map((u) => ({ value: u.id, label: u.name })) ?? []
-            }
-          />
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={stripPrefix}
-              onChange={(e) => setStripPrefix(e.target.checked)}
-            />
-            Strip path prefix
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={authSkip}
-              onChange={(e) => setAuthSkip(e.target.checked)}
-            />
-            Skip auth (let upstream handle authentication)
-          </label>
-          <div className="flex justify-end gap-2 pt-2">
-            <Button variant="secondary" type="button" onClick={() => setModalOpen(false)}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={createMut.isPending || updateMut.isPending}>
-              {editing ? 'Update' : 'Create'}
-            </Button>
-          </div>
-        </form>
-      </Modal>
+            <div className="space-y-1">
+              <Label>Path Prefix</Label>
+              <Input
+                value={pathPrefix}
+                onChange={(e) => setPathPrefix(e.target.value)}
+                placeholder="/api/v1"
+                required
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>Methods (empty = all)</Label>
+              <div className="flex gap-2 flex-wrap">
+                {ALL_METHODS.map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => toggleMethod(m)}
+                    className={`px-2 py-1 text-xs rounded border cursor-pointer ${
+                      methods.includes(m)
+                        ? 'bg-primary text-primary-foreground border-primary'
+                        : 'border-border hover:bg-muted'
+                    }`}
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label>Upstream</Label>
+              <Select value={upstreamId} onValueChange={setUpstreamId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select upstream" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(upstreams.data ?? []).map((u) => (
+                    <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={stripPrefix}
+                onChange={(e) => setStripPrefix(e.target.checked)}
+              />
+              Strip path prefix
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={authSkip}
+                onChange={(e) => setAuthSkip(e.target.checked)}
+              />
+              Skip auth (let upstream handle authentication)
+            </label>
+            <DialogFooter>
+              <Button variant="secondary" type="button" onClick={() => setModalOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={createMut.isPending || updateMut.isPending}>
+                {editing ? 'Update' : 'Create'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {/* Delete Confirmation */}
-      <ConfirmDialog
-        open={!!deleting}
-        onClose={() => setDeleting(null)}
-        onConfirm={() => deleting && deleteMut.mutate(deleting.id)}
-        title="Delete Route"
-        message={`Are you sure you want to delete "${deleting?.name}"? This action cannot be undone.`}
-      />
+      <Dialog open={!!deleting} onOpenChange={(open) => !open && setDeleting(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Route</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete "{deleting?.name}"? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setDeleting(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={() => deleting && deleteMut.mutate(deleting.id)}>Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -86,8 +86,10 @@ describe('ServicesPage', () => {
     vi.mocked(getServices).mockResolvedValue([])
     renderWithProviders(<ServicesPage />)
 
-    const filter = screen.getByDisplayValue('All statuses')
+    // Radix Select renders a combobox button with text content
+    const filter = screen.getByRole('combobox')
     expect(filter).toBeInTheDocument()
+    expect(filter).toHaveTextContent('All statuses')
   })
 
   it('opens import modal on button click', async () => {

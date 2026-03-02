@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-03-02
+
+### Added
+
+- **Settings Page** — Dedicated settings page with theme selection, timezone configuration, and app version display
+- **Timezone Support** — User-selectable timezone (default: Asia/Riyadh) persisted to localStorage; all dates/times across Logs, API Keys, and Services pages respect the chosen timezone via `Intl.DateTimeFormat`
+
+### Changed
+
+- **Sidebar Cleanup** — Moved theme picker and version info from sidebar footer to the new Settings page, keeping sidebar focused on navigation
+
 ## [1.0.1] - 2026-03-02
 
 ### Fixed

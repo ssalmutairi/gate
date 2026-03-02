@@ -1,5 +1,16 @@
 import { render, screen, fireEvent } from '@testing-library/react'
-import { Button, Input, Badge, Modal, ConfirmDialog, EmptyState } from '../ui'
+import { Button } from '../ui/button'
+import { Input } from '../ui/input'
+import { Badge } from '../ui/badge'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '../ui/dialog'
+import { EmptyState } from '../ui'
 
 describe('Button', () => {
   it('renders with children', () => {
@@ -31,19 +42,14 @@ describe('Button', () => {
 })
 
 describe('Input', () => {
-  it('renders with label', () => {
-    render(<Input label="Name" />)
-    expect(screen.getByText('Name')).toBeInTheDocument()
-  })
-
-  it('renders without label', () => {
+  it('renders input element', () => {
     const { container } = render(<Input placeholder="Enter" />)
     expect(container.querySelector('input')).toBeInTheDocument()
   })
 
-  it('shows error message', () => {
-    render(<Input error="Required" />)
-    expect(screen.getByText('Required')).toBeInTheDocument()
+  it('accepts placeholder', () => {
+    render(<Input placeholder="Enter value" />)
+    expect(screen.getByPlaceholderText('Enter value')).toBeInTheDocument()
   })
 })
 
@@ -59,12 +65,17 @@ describe('Badge', () => {
   })
 })
 
-describe('Modal', () => {
+describe('Dialog (Modal replacement)', () => {
   it('renders when open', () => {
     render(
-      <Modal open={true} onClose={() => {}} title="Test Modal">
-        <p>Modal content</p>
-      </Modal>
+      <Dialog open={true} onOpenChange={() => {}}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Test Modal</DialogTitle>
+          </DialogHeader>
+          <p>Modal content</p>
+        </DialogContent>
+      </Dialog>
     )
     expect(screen.getByText('Test Modal')).toBeInTheDocument()
     expect(screen.getByText('Modal content')).toBeInTheDocument()
@@ -72,81 +83,74 @@ describe('Modal', () => {
 
   it('does not render when closed', () => {
     render(
-      <Modal open={false} onClose={() => {}} title="Hidden">
-        <p>Hidden content</p>
-      </Modal>
+      <Dialog open={false} onOpenChange={() => {}}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Hidden</DialogTitle>
+          </DialogHeader>
+          <p>Hidden content</p>
+        </DialogContent>
+      </Dialog>
     )
     expect(screen.queryByText('Hidden')).not.toBeInTheDocument()
   })
-
-  it('calls onClose when X is clicked', () => {
-    const onClose = vi.fn()
-    render(
-      <Modal open={true} onClose={onClose} title="Close Test">
-        <p>Content</p>
-      </Modal>
-    )
-    // Click the X button
-    const buttons = screen.getAllByRole('button')
-    fireEvent.click(buttons[0])
-    expect(onClose).toHaveBeenCalledTimes(1)
-  })
 })
 
-describe('ConfirmDialog', () => {
+describe('Dialog as ConfirmDialog', () => {
   it('renders when open', () => {
     render(
-      <ConfirmDialog
-        open={true}
-        onClose={() => {}}
-        onConfirm={() => {}}
-        title="Confirm Delete"
-        message="Are you sure?"
-      />
+      <Dialog open={true} onOpenChange={() => {}}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirm Delete</DialogTitle>
+            <DialogDescription>Are you sure?</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="secondary">Cancel</Button>
+            <Button variant="destructive">Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     )
     expect(screen.getByText('Confirm Delete')).toBeInTheDocument()
     expect(screen.getByText('Are you sure?')).toBeInTheDocument()
   })
 
-  it('does not render when closed', () => {
-    render(
-      <ConfirmDialog
-        open={false}
-        onClose={() => {}}
-        onConfirm={() => {}}
-        title="Hidden"
-        message="Hidden message"
-      />
-    )
-    expect(screen.queryByText('Hidden')).not.toBeInTheDocument()
-  })
-
-  it('calls onConfirm when confirm button is clicked', () => {
+  it('calls onClick when confirm button is clicked', () => {
     const onConfirm = vi.fn()
     render(
-      <ConfirmDialog
-        open={true}
-        onClose={() => {}}
-        onConfirm={onConfirm}
-        title="Confirm"
-        message="Sure?"
-        confirmLabel="Yes, Delete"
-      />
+      <Dialog open={true} onOpenChange={() => {}}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirm</DialogTitle>
+            <DialogDescription>Sure?</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="secondary">Cancel</Button>
+            <Button variant="destructive" onClick={onConfirm}>Yes, Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     )
     fireEvent.click(screen.getByText('Yes, Delete'))
     expect(onConfirm).toHaveBeenCalledTimes(1)
   })
 
-  it('calls onClose when cancel is clicked', () => {
+  it('calls onOpenChange when cancel is clicked', () => {
     const onClose = vi.fn()
     render(
-      <ConfirmDialog
-        open={true}
-        onClose={onClose}
-        onConfirm={() => {}}
-        title="Confirm"
-        message="Sure?"
-      />
+      <Dialog open={true} onOpenChange={onClose}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirm</DialogTitle>
+            <DialogDescription>Sure?</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => onClose(false)}>Cancel</Button>
+            <Button variant="destructive">Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     )
     fireEvent.click(screen.getByText('Cancel'))
     expect(onClose).toHaveBeenCalledTimes(1)

@@ -8,17 +8,31 @@ import {
   deleteService,
   type Service,
 } from '../lib/api';
+import { Button } from '../components/ui/button';
+import { Card } from '../components/ui/card';
+import { Badge } from '../components/ui/badge';
+import { Input } from '../components/ui/input';
+import { Label } from '../components/ui/label';
 import {
-  Button,
-  Card,
-  Modal,
-  Input,
-  Badge,
-  ConfirmDialog,
-  EmptyState,
-  toast,
-} from '../components/ui';
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '../components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../components/ui/select';
+import { EmptyState } from '../components/ui';
+import { toast } from 'sonner';
 import { Plus, Trash2, Pencil, Search, Link, Upload, FileText } from 'lucide-react';
+import { useTimezone } from '../hooks/useTimezone';
+import { formatDate } from '../lib/date';
 
 function slugify(input: string): string {
   return input
@@ -39,6 +53,7 @@ const STATUS_COLORS: Record<string, string> = {
 export default function ServicesPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const { timezone } = useTimezone();
 
   // Filters
   const [search, setSearch] = useState('');
@@ -74,11 +89,11 @@ export default function ServicesPage() {
       qc.invalidateQueries({ queryKey: ['routes'] });
       qc.invalidateQueries({ queryKey: ['upstreams'] });
       setModalOpen(false);
-      toast('success', 'Service imported successfully');
+      toast.success('Service imported successfully');
     },
     onError: (e: any) => {
       const msg = e?.response?.data?.error || e.message;
-      toast('error', msg);
+      toast.error(msg);
     },
   });
 
@@ -88,9 +103,9 @@ export default function ServicesPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['services'] });
       setEditService(null);
-      toast('success', 'Service updated');
+      toast.success('Service updated');
     },
-    onError: (e: any) => toast('error', e?.response?.data?.error || e.message),
+    onError: (e: any) => toast.error(e?.response?.data?.error || e.message),
   });
 
   const deleteMut = useMutation({
@@ -100,9 +115,9 @@ export default function ServicesPage() {
       qc.invalidateQueries({ queryKey: ['routes'] });
       qc.invalidateQueries({ queryKey: ['upstreams'] });
       setDeleting(null);
-      toast('success', 'Service deleted');
+      toast.success('Service deleted');
     },
-    onError: (e: any) => toast('error', e?.response?.data?.error || e.message),
+    onError: (e: any) => toast.error(e?.response?.data?.error || e.message),
   });
 
   const handleImport = (e: React.FormEvent) => {
@@ -171,25 +186,26 @@ export default function ServicesPage() {
       <div className="flex gap-3">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <input
+          <Input
             type="text"
             placeholder="Search by namespace..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-9 pr-3 py-2 rounded-md border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            className="pl-9"
           />
         </div>
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="px-3 py-2 rounded-md border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-        >
-          <option value="">All statuses</option>
-          <option value="alpha">Alpha</option>
-          <option value="beta">Beta</option>
-          <option value="stable">Stable</option>
-          <option value="deprecated">Deprecated</option>
-        </select>
+        <Select value={statusFilter || '__all__'} onValueChange={(v) => setStatusFilter(v === '__all__' ? '' : v)}>
+          <SelectTrigger className="w-[160px]">
+            <SelectValue placeholder="All statuses" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">All statuses</SelectItem>
+            <SelectItem value="alpha">Alpha</SelectItem>
+            <SelectItem value="beta">Beta</SelectItem>
+            <SelectItem value="stable">Stable</SelectItem>
+            <SelectItem value="deprecated">Deprecated</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       <Card>
@@ -246,17 +262,12 @@ export default function ServicesPage() {
                     <td className="px-4 py-3">
                       <div className="flex gap-1 flex-wrap">
                         {(svc.tags || []).map((tag) => (
-                          <span
-                            key={tag}
-                            className="inline-block px-2 py-0.5 rounded-full text-xs bg-muted text-muted-foreground"
-                          >
-                            {tag}
-                          </span>
+                          <Badge key={tag} variant="muted">{tag}</Badge>
                         ))}
                       </div>
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">
-                      {new Date(svc.created_at).toLocaleDateString()}
+                      {formatDate(svc.created_at, timezone)}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex gap-1">
@@ -285,166 +296,184 @@ export default function ServicesPage() {
       </Card>
 
       {/* Import Modal */}
-      <Modal
-        open={modalOpen}
-        onClose={() => setModalOpen(false)}
-        title="Import OpenAPI Spec"
-      >
-        <form onSubmit={handleImport} className="space-y-4">
-          {/* Method selector */}
-          <div className="flex rounded-lg border border-border overflow-hidden">
-            {([
-              { key: 'url' as ImportMethod, label: 'URL', icon: Link },
-              { key: 'file' as ImportMethod, label: 'File', icon: Upload },
-              { key: 'paste' as ImportMethod, label: 'Paste', icon: FileText },
-            ]).map(({ key, label, icon: Icon }) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setImportMethod(key)}
-                className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors ${
-                  importMethod === key
-                    ? 'bg-primary text-primary-foreground'
-                    : 'bg-background text-muted-foreground hover:bg-muted'
-                }`}
-              >
-                <Icon className="w-4 h-4" />
-                {label}
-              </button>
-            ))}
-          </div>
+      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Import OpenAPI Spec</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleImport} className="space-y-4">
+            {/* Method selector */}
+            <div className="flex rounded-lg border border-border overflow-hidden">
+              {([
+                { key: 'url' as ImportMethod, label: 'URL', icon: Link },
+                { key: 'file' as ImportMethod, label: 'File', icon: Upload },
+                { key: 'paste' as ImportMethod, label: 'Paste', icon: FileText },
+              ]).map(({ key, label, icon: Icon }) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setImportMethod(key)}
+                  className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors cursor-pointer ${
+                    importMethod === key
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-background text-muted-foreground hover:bg-muted'
+                  }`}
+                >
+                  <Icon className="w-4 h-4" />
+                  {label}
+                </button>
+              ))}
+            </div>
 
-          {/* URL input */}
-          {importMethod === 'url' && (
-            <Input
-              label="Spec URL"
-              placeholder="https://petstore3.swagger.io/api/v3/openapi.json"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              required
-            />
-          )}
+            {/* URL input */}
+            {importMethod === 'url' && (
+              <div className="space-y-1">
+                <Label>Spec URL</Label>
+                <Input
+                  placeholder="https://petstore3.swagger.io/api/v3/openapi.json"
+                  value={url}
+                  onChange={(e) => setUrl(e.target.value)}
+                  required
+                />
+              </div>
+            )}
 
-          {/* File upload */}
-          {importMethod === 'file' && (
+            {/* File upload */}
+            {importMethod === 'file' && (
+              <div>
+                <Label className="mb-1 block">Spec File</Label>
+                <input
+                  type="file"
+                  accept=".json"
+                  onChange={handleFileChange}
+                  className="w-full text-sm file:mr-3 file:px-3 file:py-1.5 file:rounded-md file:border-0 file:bg-primary file:text-primary-foreground file:text-sm file:font-medium file:cursor-pointer cursor-pointer"
+                  required={!specContent}
+                />
+                {specContent && (
+                  <p className="mt-1 text-xs text-green-600 dark:text-green-400">
+                    File loaded ({Math.round(specContent.length / 1024)}KB)
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Paste JSON */}
+            {importMethod === 'paste' && (
+              <div>
+                <Label className="mb-1 block">Spec JSON</Label>
+                <textarea
+                  value={specContent}
+                  onChange={(e) => setSpecContent(e.target.value)}
+                  placeholder='{"openapi":"3.0.0","info":{"title":"My API",...}}'
+                  rows={8}
+                  className="w-full px-3 py-2 rounded-md border border-input bg-transparent text-sm font-mono focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-y"
+                  required
+                />
+              </div>
+            )}
+
+            {/* Service Name + slug preview */}
             <div>
-              <label className="block text-sm font-medium mb-1">Spec File</label>
-              <input
-                type="file"
-                accept=".json"
-                onChange={handleFileChange}
-                className="w-full text-sm file:mr-3 file:px-3 file:py-1.5 file:rounded-md file:border-0 file:bg-primary file:text-primary-foreground file:text-sm file:font-medium file:cursor-pointer cursor-pointer"
-                required={!specContent}
-              />
-              {specContent && (
-                <p className="mt-1 text-xs text-green-600 dark:text-green-400">
-                  File loaded ({Math.round(specContent.length / 1024)}KB)
+              <div className="space-y-1">
+                <Label>Service Name</Label>
+                <Input
+                  placeholder="Pet Store"
+                  value={namespace}
+                  onChange={(e) => setNamespace(e.target.value)}
+                  required
+                />
+              </div>
+              {namespace && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Path prefix: <code className="px-1 py-0.5 rounded bg-muted">/{slugify(namespace)}/...</code>
                 </p>
               )}
             </div>
-          )}
 
-          {/* Paste JSON */}
-          {importMethod === 'paste' && (
-            <div>
-              <label className="block text-sm font-medium mb-1">Spec JSON</label>
-              <textarea
-                value={specContent}
-                onChange={(e) => setSpecContent(e.target.value)}
-                placeholder='{"openapi":"3.0.0","info":{"title":"My API",...}}'
-                rows={8}
-                className="w-full px-3 py-2 rounded-md border border-border bg-background text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring resize-y"
-                required
-              />
-            </div>
-          )}
-
-          {/* Service Name + slug preview */}
-          <div>
-            <Input
-              label="Service Name"
-              placeholder="Pet Store"
-              value={namespace}
-              onChange={(e) => setNamespace(e.target.value)}
-              required
-            />
-            {namespace && (
-              <p className="mt-1 text-xs text-muted-foreground">
-                Path prefix: <code className="px-1 py-0.5 rounded bg-muted">/{slugify(namespace)}/...</code>
-              </p>
-            )}
-          </div>
-
-          <div className="flex justify-end gap-2 pt-2">
-            <Button
-              variant="secondary"
-              type="button"
-              onClick={() => setModalOpen(false)}
-            >
-              Cancel
-            </Button>
-            <Button type="submit" disabled={importMut.isPending}>
-              {importMut.isPending ? 'Importing...' : 'Import'}
-            </Button>
-          </div>
-        </form>
-      </Modal>
+            <DialogFooter>
+              <Button
+                variant="secondary"
+                type="button"
+                onClick={() => setModalOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={importMut.isPending}>
+                {importMut.isPending ? 'Importing...' : 'Import'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {/* Edit Modal */}
-      <Modal
-        open={!!editService}
-        onClose={() => setEditService(null)}
-        title={`Edit Service: ${editService?.namespace || ''}`}
-      >
-        <form onSubmit={handleUpdate} className="space-y-4">
-          <Input
-            label="Description"
-            placeholder="A short description of this service"
-            value={editDescription}
-            onChange={(e) => setEditDescription(e.target.value)}
-          />
-          <Input
-            label="Tags (comma-separated)"
-            placeholder="rest, pets, public"
-            value={editTags}
-            onChange={(e) => setEditTags(e.target.value)}
-          />
-          <div>
-            <label className="block text-sm font-medium mb-1">Status</label>
-            <select
-              value={editStatus}
-              onChange={(e) => setEditStatus(e.target.value)}
-              className="w-full px-3 py-2 rounded-md border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-            >
-              <option value="alpha">Alpha</option>
-              <option value="beta">Beta</option>
-              <option value="stable">Stable</option>
-              <option value="deprecated">Deprecated</option>
-            </select>
-          </div>
-          <div className="flex justify-end gap-2 pt-2">
-            <Button
-              variant="secondary"
-              type="button"
-              onClick={() => setEditService(null)}
-            >
-              Cancel
-            </Button>
-            <Button type="submit" disabled={updateMut.isPending}>
-              {updateMut.isPending ? 'Saving...' : 'Save'}
-            </Button>
-          </div>
-        </form>
-      </Modal>
+      <Dialog open={!!editService} onOpenChange={(open) => !open && setEditService(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Service: {editService?.namespace || ''}</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleUpdate} className="space-y-4">
+            <div className="space-y-1">
+              <Label>Description</Label>
+              <Input
+                placeholder="A short description of this service"
+                value={editDescription}
+                onChange={(e) => setEditDescription(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>Tags (comma-separated)</Label>
+              <Input
+                placeholder="rest, pets, public"
+                value={editTags}
+                onChange={(e) => setEditTags(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>Status</Label>
+              <Select value={editStatus} onValueChange={setEditStatus}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="alpha">Alpha</SelectItem>
+                  <SelectItem value="beta">Beta</SelectItem>
+                  <SelectItem value="stable">Stable</SelectItem>
+                  <SelectItem value="deprecated">Deprecated</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <DialogFooter>
+              <Button
+                variant="secondary"
+                type="button"
+                onClick={() => setEditService(null)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={updateMut.isPending}>
+                {updateMut.isPending ? 'Saving...' : 'Save'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {/* Delete Confirmation */}
-      <ConfirmDialog
-        open={!!deleting}
-        onClose={() => setDeleting(null)}
-        onConfirm={() => deleting && deleteMut.mutate(deleting.id)}
-        title="Delete Service"
-        message={`This will delete the "${deleting?.namespace}" service along with its upstream and route. This action cannot be undone.`}
-      />
+      <Dialog open={!!deleting} onOpenChange={(open) => !open && setDeleting(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Service</DialogTitle>
+            <DialogDescription>
+              This will delete the "{deleting?.namespace}" service along with its upstream and route. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setDeleting(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={() => deleting && deleteMut.mutate(deleting.id)}>Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

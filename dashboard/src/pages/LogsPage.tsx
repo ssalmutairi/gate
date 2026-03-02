@@ -1,17 +1,22 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { getLogs } from '../lib/api';
-import { Button, Card, Badge } from '../components/ui';
+import { Button } from '../components/ui/button';
+import { Card } from '../components/ui/card';
+import { Badge } from '../components/ui/badge';
+import { useTimezone } from '../hooks/useTimezone';
+import { formatTime } from '../lib/date';
 
 function statusColor(code: number) {
-  if (code >= 500) return 'destructive';
-  if (code >= 400) return 'warning';
-  return 'success';
+  if (code >= 500) return 'destructive' as const;
+  if (code >= 400) return 'warning' as const;
+  return 'success' as const;
 }
 
 export default function LogsPage() {
   const [page, setPage] = useState(1);
   const limit = 20;
+  const { timezone } = useTimezone();
 
   const logs = useQuery({
     queryKey: ['logs', page],
@@ -48,7 +53,7 @@ export default function LogsPage() {
               {logs.data?.data.map((entry) => (
                 <tr key={entry.id} className="border-b border-border last:border-0 hover:bg-muted/50">
                   <td className="px-4 py-3 text-muted-foreground text-xs">
-                    {new Date(entry.created_at).toLocaleTimeString()}
+                    {formatTime(entry.created_at, timezone)}
                   </td>
                   <td className="px-4 py-3">
                     <Badge variant="muted">{entry.method}</Badge>

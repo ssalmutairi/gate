@@ -8,21 +8,35 @@ import {
   deleteApiKey,
   type ApiKey,
 } from '../lib/api';
+import { Button } from '../components/ui/button';
+import { Card } from '../components/ui/card';
+import { Badge } from '../components/ui/badge';
+import { Input } from '../components/ui/input';
+import { Label } from '../components/ui/label';
 import {
-  Button,
-  Card,
-  Modal,
-  Input,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '../components/ui/dialog';
+import {
   Select,
-  Badge,
-  ConfirmDialog,
-  EmptyState,
-  toast,
-} from '../components/ui';
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../components/ui/select';
+import { EmptyState } from '../components/ui';
+import { toast } from 'sonner';
 import { Plus, Trash2, Copy, AlertTriangle } from 'lucide-react';
+import { useTimezone } from '../hooks/useTimezone';
+import { formatDate } from '../lib/date';
 
 export default function ApiKeysPage() {
   const qc = useQueryClient();
+  const { timezone } = useTimezone();
   const apiKeys = useQuery({ queryKey: ['apiKeys'], queryFn: getApiKeys });
   const routes = useQuery({ queryKey: ['routes'], queryFn: getRoutes });
   const [modalOpen, setModalOpen] = useState(false);
@@ -42,16 +56,16 @@ export default function ApiKeysPage() {
       if (data.plaintext_key) {
         setCreatedKey(data.plaintext_key);
       }
-      toast('success', 'API key created');
+      toast.success('API key created');
     },
-    onError: (e: any) => toast('error', e.response?.data?.error ?? 'Failed'),
+    onError: (e: any) => toast.error(e.response?.data?.error ?? 'Failed'),
   });
 
   const toggleMut = useMutation({
     mutationFn: ({ id, active }: { id: string; active: boolean }) => updateApiKey(id, { active }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['apiKeys'] });
-      toast('success', 'API key updated');
+      toast.success('API key updated');
     },
   });
 
@@ -60,9 +74,9 @@ export default function ApiKeysPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['apiKeys'] });
       setDeleting(null);
-      toast('success', 'API key deleted');
+      toast.success('API key deleted');
     },
-    onError: (e: any) => toast('error', e.response?.data?.error ?? 'Failed'),
+    onError: (e: any) => toast.error(e.response?.data?.error ?? 'Failed'),
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -77,7 +91,7 @@ export default function ApiKeysPage() {
   const copyKey = () => {
     if (createdKey) {
       navigator.clipboard.writeText(createdKey);
-      toast('success', 'Key copied to clipboard');
+      toast.success('Key copied to clipboard');
     }
   };
 
@@ -142,11 +156,11 @@ export default function ApiKeysPage() {
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">
                       {key.expires_at
-                        ? new Date(key.expires_at).toLocaleDateString()
+                        ? formatDate(key.expires_at, timezone)
                         : 'Never'}
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">
-                      {new Date(key.created_at).toLocaleDateString()}
+                      {formatDate(key.created_at, timezone)}
                     </td>
                     <td className="px-4 py-3">
                       <button onClick={() => setDeleting(key)} className="p-1 hover:bg-muted rounded text-destructive cursor-pointer">
@@ -162,53 +176,86 @@ export default function ApiKeysPage() {
       </Card>
 
       {/* Create Modal */}
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Create API Key">
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} placeholder="my-service-key" required />
-          <Select label="Route Scope" value={routeId} onChange={(e) => setRouteId(e.target.value)} options={routeOptions} />
-          <Input label="Expires At (optional)" type="datetime-local" value={expiresAt} onChange={(e) => setExpiresAt(e.target.value)} />
-          <div className="flex justify-end gap-2 pt-2">
-            <Button variant="secondary" type="button" onClick={() => setModalOpen(false)}>Cancel</Button>
-            <Button type="submit" disabled={createMut.isPending}>Create</Button>
-          </div>
-        </form>
-      </Modal>
+      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create API Key</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-1">
+              <Label>Name</Label>
+              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="my-service-key" required />
+            </div>
+            <div className="space-y-1">
+              <Label>Route Scope</Label>
+              <Select value={routeId} onValueChange={setRouteId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select scope" />
+                </SelectTrigger>
+                <SelectContent>
+                  {routeOptions.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value || '__global__'}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label>Expires At (optional)</Label>
+              <Input type="datetime-local" value={expiresAt} onChange={(e) => setExpiresAt(e.target.value)} />
+            </div>
+            <DialogFooter>
+              <Button variant="secondary" type="button" onClick={() => setModalOpen(false)}>Cancel</Button>
+              <Button type="submit" disabled={createMut.isPending}>Create</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {/* Key Display Modal */}
-      <Modal
-        open={!!createdKey}
-        onClose={() => setCreatedKey(null)}
-        title="API Key Created"
-      >
-        <div className="space-y-4">
-          <div className="flex items-start gap-2 p-3 bg-warning/10 rounded-md text-sm">
-            <AlertTriangle className="w-4 h-4 text-warning mt-0.5 shrink-0" />
-            <p>This key will not be shown again. Store it securely.</p>
+      <Dialog open={!!createdKey} onOpenChange={(open) => !open && setCreatedKey(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>API Key Created</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="flex items-start gap-2 p-3 bg-warning/10 rounded-md text-sm">
+              <AlertTriangle className="w-4 h-4 text-warning mt-0.5 shrink-0" />
+              <p>This key will not be shown again. Store it securely.</p>
+            </div>
+            <div className="flex gap-2">
+              <Input
+                readOnly
+                value={createdKey ?? ''}
+                className="flex-1 font-mono text-xs"
+              />
+              <Button variant="secondary" size="sm" onClick={copyKey}>
+                <Copy className="w-4 h-4" />
+              </Button>
+            </div>
+            <div className="flex justify-end">
+              <Button onClick={() => setCreatedKey(null)}>I've saved this key</Button>
+            </div>
           </div>
-          <div className="flex gap-2">
-            <input
-              readOnly
-              value={createdKey ?? ''}
-              className="flex-1 font-mono text-xs bg-muted px-3 py-2 rounded border border-border"
-            />
-            <Button variant="secondary" size="sm" onClick={copyKey}>
-              <Copy className="w-4 h-4" />
-            </Button>
-          </div>
-          <div className="flex justify-end">
-            <Button onClick={() => setCreatedKey(null)}>I've saved this key</Button>
-          </div>
-        </div>
-      </Modal>
+        </DialogContent>
+      </Dialog>
 
       {/* Delete Confirmation */}
-      <ConfirmDialog
-        open={!!deleting}
-        onClose={() => setDeleting(null)}
-        onConfirm={() => deleting && deleteMut.mutate(deleting.id)}
-        title="Delete API Key"
-        message={`Delete API key "${deleting?.name}"? Any clients using this key will lose access.`}
-      />
+      <Dialog open={!!deleting} onOpenChange={(open) => !open && setDeleting(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete API Key</DialogTitle>
+            <DialogDescription>
+              Delete API key "{deleting?.name}"? Any clients using this key will lose access.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setDeleting(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={() => deleting && deleteMut.mutate(deleting.id)}>Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

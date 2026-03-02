@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { getRoutes, getStats } from '../lib/api';
-import { Card } from '../components/ui';
+import { Card } from '../components/ui/card';
+import { Badge } from '../components/ui/badge';
 import { Activity, AlertTriangle, Clock, Route } from 'lucide-react';
 
 export default function DashboardPage() {
@@ -75,15 +76,9 @@ export default function DashboardPage() {
                   {route.path_prefix}
                 </span>
               </div>
-              <span
-                className={`text-xs px-2 py-0.5 rounded-full ${
-                  route.active
-                    ? 'bg-success/10 text-success'
-                    : 'bg-muted text-muted-foreground'
-                }`}
-              >
+              <Badge variant={route.active ? 'success' : 'muted'}>
                 {route.active ? 'Active' : 'Inactive'}
-              </span>
+              </Badge>
             </div>
           ))}
           {routes.data?.length === 0 && (

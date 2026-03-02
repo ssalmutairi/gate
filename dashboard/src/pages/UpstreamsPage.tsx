@@ -10,17 +10,28 @@ import {
   type Upstream,
   type Target,
 } from '../lib/api';
+import { Button } from '../components/ui/button';
+import { Card } from '../components/ui/card';
+import { Badge } from '../components/ui/badge';
+import { Input } from '../components/ui/input';
+import { Label } from '../components/ui/label';
 import {
-  Button,
-  Card,
-  Modal,
-  Input,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '../components/ui/dialog';
+import {
   Select,
-  Badge,
-  ConfirmDialog,
-  EmptyState,
-  toast,
-} from '../components/ui';
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../components/ui/select';
+import { EmptyState } from '../components/ui';
+import { toast } from 'sonner';
 import { Plus, Pencil, Trash2, ChevronDown, ChevronRight, Circle } from 'lucide-react';
 
 export default function UpstreamsPage() {
@@ -69,9 +80,9 @@ export default function UpstreamsPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['upstreams'] });
       setModalOpen(false);
-      toast('success', 'Upstream created');
+      toast.success('Upstream created');
     },
-    onError: (e: any) => toast('error', e.response?.data?.error ?? 'Failed'),
+    onError: (e: any) => toast.error(e.response?.data?.error ?? 'Failed'),
   });
 
   const updateMut = useMutation({
@@ -80,9 +91,9 @@ export default function UpstreamsPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['upstreams'] });
       setModalOpen(false);
-      toast('success', 'Upstream updated');
+      toast.success('Upstream updated');
     },
-    onError: (e: any) => toast('error', e.response?.data?.error ?? 'Failed'),
+    onError: (e: any) => toast.error(e.response?.data?.error ?? 'Failed'),
   });
 
   const deleteMut = useMutation({
@@ -90,9 +101,9 @@ export default function UpstreamsPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['upstreams'] });
       setDeleting(null);
-      toast('success', 'Upstream deleted');
+      toast.success('Upstream deleted');
     },
-    onError: (e: any) => toast('error', e.response?.data?.error ?? 'Failed'),
+    onError: (e: any) => toast.error(e.response?.data?.error ?? 'Failed'),
   });
 
   const createTargetMut = useMutation({
@@ -101,9 +112,9 @@ export default function UpstreamsPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['upstreams'] });
       setTargetModal(null);
-      toast('success', 'Target added');
+      toast.success('Target added');
     },
-    onError: (e: any) => toast('error', e.response?.data?.error ?? 'Failed'),
+    onError: (e: any) => toast.error(e.response?.data?.error ?? 'Failed'),
   });
 
   const deleteTargetMut = useMutation({
@@ -112,9 +123,9 @@ export default function UpstreamsPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['upstreams'] });
       setDeletingTarget(null);
-      toast('success', 'Target removed');
+      toast.success('Target removed');
     },
-    onError: (e: any) => toast('error', e.response?.data?.error ?? 'Failed'),
+    onError: (e: any) => toast.error(e.response?.data?.error ?? 'Failed'),
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -134,12 +145,6 @@ export default function UpstreamsPage() {
       data: { host: targetHost, port: parseInt(targetPort), weight: parseInt(targetWeight) },
     });
   };
-
-  const algOptions = [
-    { value: 'round_robin', label: 'Round Robin' },
-    { value: 'weighted_round_robin', label: 'Weighted Round Robin' },
-    { value: 'least_connections', label: 'Least Connections' },
-  ];
 
   return (
     <div>
@@ -242,62 +247,106 @@ export default function UpstreamsPage() {
       )}
 
       {/* Create/Edit Upstream Modal */}
-      <Modal
-        open={modalOpen}
-        onClose={() => setModalOpen(false)}
-        title={editing ? 'Edit Upstream' : 'Create Upstream'}
-      >
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} required />
-          <Select label="Algorithm" value={algorithm} onChange={(e) => setAlgorithm(e.target.value)} options={algOptions} />
-          <div className="flex justify-end gap-2 pt-2">
-            <Button variant="secondary" type="button" onClick={() => setModalOpen(false)}>Cancel</Button>
-            <Button type="submit">{editing ? 'Update' : 'Create'}</Button>
-          </div>
-        </form>
-      </Modal>
+      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editing ? 'Edit Upstream' : 'Create Upstream'}</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-1">
+              <Label>Name</Label>
+              <Input value={name} onChange={(e) => setName(e.target.value)} required />
+            </div>
+            <div className="space-y-1">
+              <Label>Algorithm</Label>
+              <Select value={algorithm} onValueChange={setAlgorithm}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="round_robin">Round Robin</SelectItem>
+                  <SelectItem value="weighted_round_robin">Weighted Round Robin</SelectItem>
+                  <SelectItem value="least_connections">Least Connections</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <DialogFooter>
+              <Button variant="secondary" type="button" onClick={() => setModalOpen(false)}>Cancel</Button>
+              <Button type="submit">{editing ? 'Update' : 'Create'}</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {/* Add Target Modal */}
-      <Modal
-        open={!!targetModal}
-        onClose={() => setTargetModal(null)}
-        title="Add Target"
-      >
-        <form onSubmit={handleTargetSubmit} className="space-y-4">
-          <Input label="Host" value={targetHost} onChange={(e) => setTargetHost(e.target.value)} placeholder="api.example.com" required />
-          <Input label="Port" type="number" value={targetPort} onChange={(e) => setTargetPort(e.target.value)} required />
-          <Input label="Weight" type="number" value={targetWeight} onChange={(e) => setTargetWeight(e.target.value)} min={1} />
-          <div className="flex justify-end gap-2 pt-2">
-            <Button variant="secondary" type="button" onClick={() => setTargetModal(null)}>Cancel</Button>
-            <Button type="submit">Add Target</Button>
-          </div>
-        </form>
-      </Modal>
+      <Dialog open={!!targetModal} onOpenChange={(open) => !open && setTargetModal(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Target</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleTargetSubmit} className="space-y-4">
+            <div className="space-y-1">
+              <Label>Host</Label>
+              <Input value={targetHost} onChange={(e) => setTargetHost(e.target.value)} placeholder="api.example.com" required />
+            </div>
+            <div className="space-y-1">
+              <Label>Port</Label>
+              <Input type="number" value={targetPort} onChange={(e) => setTargetPort(e.target.value)} required />
+            </div>
+            <div className="space-y-1">
+              <Label>Weight</Label>
+              <Input type="number" value={targetWeight} onChange={(e) => setTargetWeight(e.target.value)} min={1} />
+            </div>
+            <DialogFooter>
+              <Button variant="secondary" type="button" onClick={() => setTargetModal(null)}>Cancel</Button>
+              <Button type="submit">Add Target</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {/* Delete Upstream Confirmation */}
-      <ConfirmDialog
-        open={!!deleting}
-        onClose={() => setDeleting(null)}
-        onConfirm={() => deleting && deleteMut.mutate(deleting.id)}
-        title="Delete Upstream"
-        message={`Delete "${deleting?.name}" and all its targets?`}
-      />
+      <Dialog open={!!deleting} onOpenChange={(open) => !open && setDeleting(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Upstream</DialogTitle>
+            <DialogDescription>
+              Delete "{deleting?.name}" and all its targets?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setDeleting(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={() => deleting && deleteMut.mutate(deleting.id)}>Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Delete Target Confirmation */}
-      <ConfirmDialog
-        open={!!deletingTarget}
-        onClose={() => setDeletingTarget(null)}
-        onConfirm={() =>
-          deletingTarget &&
-          deleteTargetMut.mutate({
-            upstreamId: deletingTarget.upstream.id,
-            targetId: deletingTarget.target.id,
-          })
-        }
-        title="Remove Target"
-        message={`Remove target ${deletingTarget?.target.host}:${deletingTarget?.target.port}?`}
-        confirmLabel="Remove"
-      />
+      <Dialog open={!!deletingTarget} onOpenChange={(open) => !open && setDeletingTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Remove Target</DialogTitle>
+            <DialogDescription>
+              Remove target {deletingTarget?.target.host}:{deletingTarget?.target.port}?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setDeletingTarget(null)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={() =>
+                deletingTarget &&
+                deleteTargetMut.mutate({
+                  upstreamId: deletingTarget.upstream.id,
+                  targetId: deletingTarget.target.id,
+                })
+              }
+            >
+              Remove
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
