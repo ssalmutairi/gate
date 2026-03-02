@@ -349,15 +349,16 @@ impl ProxyHttp for GatewayProxy {
             let key_header = session
                 .req_header()
                 .headers
-                .get("x-api-key")
+                .get("authorization")
                 .and_then(|v| v.to_str().ok())
+                .and_then(|s| s.strip_prefix("Bearer "))
                 .map(|s| s.to_string());
 
             match key_header {
                 None => {
                     metrics::AUTH_FAILURES.with_label_values(&[&route_id.to_string()]).inc();
                     return self
-                        .send_json_error(session, 401, "API key required", "AUTH_REQUIRED")
+                        .send_json_error(session, 401, "Authorization header required (Bearer <api-key>)", "AUTH_REQUIRED")
                         .await;
                 }
                 Some(plaintext_key) => {
