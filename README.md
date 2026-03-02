@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <strong>Live Demo:</strong> <a href="https://gate.lsa.sa/">gate.lsa.sa</a> — token: <code>changeme</code>
+  <strong>Live Demo:</strong> <a href="https://gate.lsa.sa/">gate.lsa.sa</a> (dashboard, token: <code>changeme</code>) · <a href="https://gate-proxy.lsa.sa/">gate-proxy.lsa.sa</a> (proxy)
 </p>
 
 ## Architecture
