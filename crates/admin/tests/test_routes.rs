@@ -1,15 +1,13 @@
 mod common;
 
 use axum::body::Body;
-use axum::http::{Request, StatusCode};
+use axum::http::StatusCode;
 use http_body_util::BodyExt;
 use tower::ServiceExt;
 
 async fn create_upstream(pool: &sqlx::PgPool) -> String {
     let app = common::build_test_app(pool.clone());
-    let req = Request::builder()
-        .method("POST")
-        .uri("/admin/upstreams")
+    let req = common::authed_request("POST", "/admin/upstreams")
         .header("content-type", "application/json")
         .body(Body::from(r#"{"name":"route-test-upstream"}"#))
         .unwrap();
@@ -30,9 +28,7 @@ async fn create_route_returns_201() {
         "path_prefix": "/api",
         "upstream_id": upstream_id
     });
-    let req = Request::builder()
-        .method("POST")
-        .uri("/admin/routes")
+    let req = common::authed_request("POST", "/admin/routes")
         .header("content-type", "application/json")
         .body(Body::from(payload.to_string()))
         .unwrap();
@@ -57,9 +53,7 @@ async fn create_route_with_max_body_bytes() {
         "upstream_id": upstream_id,
         "max_body_bytes": 1024
     });
-    let req = Request::builder()
-        .method("POST")
-        .uri("/admin/routes")
+    let req = common::authed_request("POST", "/admin/routes")
         .header("content-type", "application/json")
         .body(Body::from(payload.to_string()))
         .unwrap();
@@ -81,9 +75,7 @@ async fn create_route_invalid_prefix_returns_400() {
         "path_prefix": "no-slash",
         "upstream_id": upstream_id
     });
-    let req = Request::builder()
-        .method("POST")
-        .uri("/admin/routes")
+    let req = common::authed_request("POST", "/admin/routes")
         .header("content-type", "application/json")
         .body(Body::from(payload.to_string()))
         .unwrap();
@@ -103,9 +95,7 @@ async fn crud_route() {
         "path_prefix": "/crud",
         "upstream_id": upstream_id
     });
-    let req = Request::builder()
-        .method("POST")
-        .uri("/admin/routes")
+    let req = common::authed_request("POST", "/admin/routes")
         .header("content-type", "application/json")
         .body(Body::from(payload.to_string()))
         .unwrap();
@@ -116,8 +106,7 @@ async fn crud_route() {
 
     // List
     let app = common::build_test_app(pool.clone());
-    let req = Request::builder()
-        .uri("/admin/routes")
+    let req = common::authed_get("/admin/routes")
         .body(Body::empty())
         .unwrap();
     let resp = app.oneshot(req).await.unwrap();
@@ -125,8 +114,7 @@ async fn crud_route() {
 
     // Get
     let app = common::build_test_app(pool.clone());
-    let req = Request::builder()
-        .uri(format!("/admin/routes/{}", id))
+    let req = common::authed_get(&format!("/admin/routes/{}", id))
         .body(Body::empty())
         .unwrap();
     let resp = app.oneshot(req).await.unwrap();
@@ -135,9 +123,7 @@ async fn crud_route() {
     // Update with max_body_bytes
     let app = common::build_test_app(pool.clone());
     let payload = serde_json::json!({"max_body_bytes": 2048});
-    let req = Request::builder()
-        .method("PUT")
-        .uri(format!("/admin/routes/{}", id))
+    let req = common::authed_request("PUT", &format!("/admin/routes/{}", id))
         .header("content-type", "application/json")
         .body(Body::from(payload.to_string()))
         .unwrap();
@@ -149,9 +135,7 @@ async fn crud_route() {
 
     // Delete
     let app = common::build_test_app(pool.clone());
-    let req = Request::builder()
-        .method("DELETE")
-        .uri(format!("/admin/routes/{}", id))
+    let req = common::authed_request("DELETE", &format!("/admin/routes/{}", id))
         .body(Body::empty())
         .unwrap();
     let resp = app.oneshot(req).await.unwrap();

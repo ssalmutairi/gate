@@ -1,15 +1,13 @@
 mod common;
 
 use axum::body::Body;
-use axum::http::{Request, StatusCode};
+use axum::http::StatusCode;
 use http_body_util::BodyExt;
 use tower::ServiceExt;
 
 async fn create_upstream_and_route(pool: &sqlx::PgPool) -> String {
     let app = common::build_test_app(pool.clone());
-    let req = Request::builder()
-        .method("POST")
-        .uri("/admin/upstreams")
+    let req = common::authed_request("POST", "/admin/upstreams")
         .header("content-type", "application/json")
         .body(Body::from(r#"{"name":"hr-upstream"}"#))
         .unwrap();
@@ -24,9 +22,7 @@ async fn create_upstream_and_route(pool: &sqlx::PgPool) -> String {
         "path_prefix": "/hr",
         "upstream_id": upstream_id
     });
-    let req = Request::builder()
-        .method("POST")
-        .uri("/admin/routes")
+    let req = common::authed_request("POST", "/admin/routes")
         .header("content-type", "application/json")
         .body(Body::from(payload.to_string()))
         .unwrap();
@@ -47,9 +43,7 @@ async fn create_header_rule_set() {
         "header_name": "X-Custom",
         "header_value": "hello"
     });
-    let req = Request::builder()
-        .method("POST")
-        .uri(format!("/admin/routes/{}/header-rules", route_id))
+    let req = common::authed_request("POST", &format!("/admin/routes/{}/header-rules", route_id))
         .header("content-type", "application/json")
         .body(Body::from(payload.to_string()))
         .unwrap();
@@ -72,9 +66,7 @@ async fn create_header_rule_remove() {
         "action": "remove",
         "header_name": "X-Remove-Me"
     });
-    let req = Request::builder()
-        .method("POST")
-        .uri(format!("/admin/routes/{}/header-rules", route_id))
+    let req = common::authed_request("POST", &format!("/admin/routes/{}/header-rules", route_id))
         .header("content-type", "application/json")
         .body(Body::from(payload.to_string()))
         .unwrap();
@@ -94,9 +86,7 @@ async fn create_header_rule_invalid_phase_returns_400() {
         "header_name": "X-Test",
         "header_value": "val"
     });
-    let req = Request::builder()
-        .method("POST")
-        .uri(format!("/admin/routes/{}/header-rules", route_id))
+    let req = common::authed_request("POST", &format!("/admin/routes/{}/header-rules", route_id))
         .header("content-type", "application/json")
         .body(Body::from(payload.to_string()))
         .unwrap();
@@ -114,9 +104,7 @@ async fn create_header_rule_missing_value_returns_400() {
         "action": "set",
         "header_name": "X-Test"
     });
-    let req = Request::builder()
-        .method("POST")
-        .uri(format!("/admin/routes/{}/header-rules", route_id))
+    let req = common::authed_request("POST", &format!("/admin/routes/{}/header-rules", route_id))
         .header("content-type", "application/json")
         .body(Body::from(payload.to_string()))
         .unwrap();
@@ -136,9 +124,7 @@ async fn list_and_delete_header_rules() {
         "header_name": "X-List",
         "header_value": "val"
     });
-    let req = Request::builder()
-        .method("POST")
-        .uri(format!("/admin/routes/{}/header-rules", route_id))
+    let req = common::authed_request("POST", &format!("/admin/routes/{}/header-rules", route_id))
         .header("content-type", "application/json")
         .body(Body::from(payload.to_string()))
         .unwrap();
@@ -149,8 +135,7 @@ async fn list_and_delete_header_rules() {
 
     // List
     let app = common::build_test_app(pool.clone());
-    let req = Request::builder()
-        .uri(format!("/admin/routes/{}/header-rules", route_id))
+    let req = common::authed_get(&format!("/admin/routes/{}/header-rules", route_id))
         .body(Body::empty())
         .unwrap();
     let resp = app.oneshot(req).await.unwrap();
@@ -161,9 +146,7 @@ async fn list_and_delete_header_rules() {
 
     // Delete
     let app = common::build_test_app(pool.clone());
-    let req = Request::builder()
-        .method("DELETE")
-        .uri(format!("/admin/header-rules/{}", rule_id))
+    let req = common::authed_request("DELETE", &format!("/admin/header-rules/{}", rule_id))
         .body(Body::empty())
         .unwrap();
     let resp = app.oneshot(req).await.unwrap();

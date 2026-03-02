@@ -46,6 +46,7 @@ fn main() {
     let (db_pool, gateway_config) = rt.block_on(async {
         let pool = PgPoolOptions::new()
             .max_connections(10)
+            .acquire_timeout(std::time::Duration::from_secs(5))
             .connect(&app_config.database_url)
             .await
             .expect("Failed to connect to database");
@@ -100,7 +101,13 @@ fn main() {
     server.bootstrap();
 
     // Create the proxy service
-    let proxy = GatewayProxy::new(db_pool, gateway_config, conn_tracker, log_sender);
+    let proxy = GatewayProxy::new(
+        db_pool,
+        gateway_config,
+        conn_tracker,
+        log_sender,
+        app_config.trusted_proxies.clone(),
+    );
     let mut proxy_service = http_proxy_service(&server.configuration, proxy);
 
     let addr = format!("0.0.0.0:{}", app_config.proxy_port);
@@ -118,7 +125,7 @@ fn print_banner(config: &AppConfig) {
     let health = format!("every {}s", config.health_check_interval_secs);
     eprintln!();
     eprintln!("  ┌───────────────────────────────────┐");
-    eprintln!("  │         Gate Proxy v1.0.1         │");
+    eprintln!("  │     Gate Proxy v{}      │", env!("CARGO_PKG_VERSION"));
     eprintln!("  ├───────────────────────────────────┤");
     eprintln!("  │  Proxy:   {:<24}│", proxy_addr);
     eprintln!("  │  Metrics: {:<24}│", metrics_addr);

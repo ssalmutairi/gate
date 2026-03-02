@@ -1,7 +1,7 @@
 mod common;
 
 use axum::body::Body;
-use axum::http::{Request, StatusCode};
+use axum::http::StatusCode;
 use http_body_util::BodyExt;
 use tower::ServiceExt;
 
@@ -10,8 +10,7 @@ async fn stats_empty() {
     let pool = common::setup_test_db().await;
     let app = common::build_test_app(pool);
 
-    let req = Request::builder()
-        .uri("/admin/stats")
+    let req = common::authed_get("/admin/stats")
         .body(Body::empty())
         .unwrap();
     let resp = app.oneshot(req).await.unwrap();
@@ -28,8 +27,7 @@ async fn logs_empty() {
     let pool = common::setup_test_db().await;
     let app = common::build_test_app(pool);
 
-    let req = Request::builder()
-        .uri("/admin/logs")
+    let req = common::authed_get("/admin/logs")
         .body(Body::empty())
         .unwrap();
     let resp = app.oneshot(req).await.unwrap();

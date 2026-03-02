@@ -9,8 +9,8 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/coverage-96.8%25-brightgreen" alt="Coverage" />
-  <img src="https://img.shields.io/badge/tests-117%20passed-brightgreen" alt="Tests" />
+  <img src="https://img.shields.io/badge/coverage-92%25-brightgreen" alt="Coverage" />
+  <img src="https://img.shields.io/badge/tests-196%20passed-brightgreen" alt="Tests" />
   <img src="https://img.shields.io/badge/rust-1.93-orange" alt="Rust" />
   <img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="License" />
   <a href="https://github.com/ssalmutairi/gate/releases/latest"><img src="https://img.shields.io/github/v/release/ssalmutairi/gate" alt="Release" /></a>
@@ -87,7 +87,7 @@ Open http://localhost:9000 to access the dashboard.
 
 #### Prerequisites
 
-- Rust (1.88+)
+- Rust (1.93+)
 - Node.js (20+)
 - Docker (for PostgreSQL)
 
@@ -161,6 +161,7 @@ curl http://localhost:8080/api/get
 | `HEALTH_CHECK_INTERVAL_SECS` | `10` | Health check interval |
 | `HEALTH_CHECK_PATH` | `/health` | Health check endpoint path |
 | `METRICS_PORT` | `9091` | Prometheus metrics port |
+| `TRUSTED_PROXIES` | (none) | Comma-separated trusted proxy CIDRs for X-Forwarded-For |
 
 ## Admin API
 
@@ -198,35 +199,42 @@ Metrics exposed:
 ## Testing
 
 ```bash
-# Rust proxy unit tests (60 tests)
-cargo test -p proxy
+# All Rust tests (96 unit + integration tests, requires PostgreSQL)
+cargo test --workspace -- --test-threads=1
 
-# Admin integration tests (33 tests, requires PostgreSQL)
-cargo test -p admin -- --test-threads=1
-
-# Dashboard tests (48 tests)
-cd dashboard && npm test
-
-# E2E tests (9 scenarios)
+# E2E tests (9 scenarios, requires PostgreSQL + built binaries)
 bash tests/e2e/run.sh
 
-# Coverage report
+# Dashboard tests
+cd dashboard && npm test
+
+# Combined coverage report (unit + E2E)
 bash scripts/coverage.sh
 ```
 
 ### Coverage
 
+Combined unit + integration + E2E coverage via `cargo-llvm-cov`:
+
 | Component | Lines | Functions |
 |-----------|-------|-----------|
-| **Proxy (unit + E2E)** | **96.8%** | **95.9%** |
+| **Overall** | **92.0%** | **89.5%** |
 | `router.rs` | 100% | 100% |
 | `lb.rs` | 99.1% | 100% |
-| `main.rs` | 98.7% | 100% |
-| `logging.rs` | 96.2% | 100% |
-| `service.rs` | 95.6% | 86.4% |
-| `config.rs` | 93.2% | 100% |
-| `metrics.rs` | 93.0% | 94.1% |
-| `health.rs` | 84.9% | 100% |
+| `proxy/main.rs` | 98.9% | 100% |
+| `admin/main.rs` | 98.3% | 100% |
+| `api_keys.rs` | 97.0% | 81.8% |
+| `logging.rs` | 96.4% | 100% |
+| `proxy/config.rs` | 96.6% | 100% |
+| `routes.rs` | 96.5% | 84.6% |
+| `rate_limits.rs` | 95.5% | 100% |
+| `shared/config.rs` | 94.9% | 66.7% |
+| `service.rs` | 94.4% | 84.2% |
+| `upstreams.rs` | 93.1% | 89.5% |
+| `header_rules.rs` | 93.6% | 88.9% |
+| `errors.rs` | 91.5% | 100% |
+| `services.rs` | 85.2% | 83.6% |
+| `metrics.rs` | 85.7% | 88.9% |
 
 ## Project Structure
 

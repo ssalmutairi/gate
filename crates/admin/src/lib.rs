@@ -9,13 +9,29 @@ use axum::middleware;
 use axum::routing::{delete, get, post, put};
 use axum::Router;
 use sqlx::PgPool;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::{AllowHeaders, AllowMethods, AllowOrigin, CorsLayer};
 
 pub fn build_router(pool: PgPool) -> Router {
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
+    // CORS: use CORS_ALLOWED_ORIGINS env var if set, otherwise allow same-origin only
+    let cors = match std::env::var("CORS_ALLOWED_ORIGINS") {
+        Ok(origins) if !origins.is_empty() && origins != "*" => {
+            let allowed: Vec<_> = origins
+                .split(',')
+                .filter_map(|s| s.trim().parse().ok())
+                .collect();
+            CorsLayer::new()
+                .allow_origin(allowed)
+                .allow_methods(AllowMethods::mirror_request())
+                .allow_headers(AllowHeaders::mirror_request())
+        }
+        _ => {
+            // Default: allow all origins (needed when dashboard is embedded in same binary)
+            CorsLayer::new()
+                .allow_origin(AllowOrigin::mirror_request())
+                .allow_methods(AllowMethods::mirror_request())
+                .allow_headers(AllowHeaders::mirror_request())
+        }
+    };
 
     Router::new()
         // Health (no auth)

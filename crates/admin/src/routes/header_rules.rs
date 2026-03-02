@@ -81,6 +81,26 @@ pub async fn create_header_rule(
         return Err(AppError::Validation("header_name is required".into()));
     }
 
+    // Validate header name is a valid HTTP header name
+    if body.header_name.len() > 256 {
+        return Err(AppError::Validation("header_name must be 256 characters or fewer".into()));
+    }
+    if axum::http::header::HeaderName::from_bytes(body.header_name.trim().as_bytes()).is_err() {
+        return Err(AppError::Validation("header_name is not a valid HTTP header name".into()));
+    }
+
+    // Reject CRLF in header values to prevent header injection
+    if let Some(ref val) = body.header_value {
+        if val.contains('\r') || val.contains('\n') {
+            return Err(AppError::Validation(
+                "header_value must not contain CR or LF characters".into(),
+            ));
+        }
+        if val.len() > 8192 {
+            return Err(AppError::Validation("header_value must be 8192 characters or fewer".into()));
+        }
+    }
+
     // Verify route exists
     let _: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM routes WHERE id = $1")
         .bind(route_id)

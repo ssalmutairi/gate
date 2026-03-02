@@ -1,8 +1,9 @@
 mod common;
 
 use axum::body::Body;
-use axum::http::{Request, StatusCode};
+use axum::http::StatusCode;
 use http_body_util::BodyExt;
+use serde_json::json;
 use tower::ServiceExt;
 
 #[tokio::test]
@@ -10,8 +11,7 @@ async fn list_services_empty() {
     let pool = common::setup_test_db().await;
     let app = common::build_test_app(pool);
 
-    let req = Request::builder()
-        .uri("/admin/services")
+    let req = common::authed_get("/admin/services")
         .body(Body::empty())
         .unwrap();
     let resp = app.oneshot(req).await.unwrap();
@@ -47,8 +47,7 @@ async fn list_services_with_search_filter() {
 
     // Search by namespace
     let app = common::build_test_app(pool.clone());
-    let req = Request::builder()
-        .uri("/admin/services?search=searchtest")
+    let req = common::authed_get("/admin/services?search=searchtest")
         .body(Body::empty())
         .unwrap();
     let resp = app.oneshot(req).await.unwrap();
@@ -59,8 +58,7 @@ async fn list_services_with_search_filter() {
 
     // Search with no match
     let app = common::build_test_app(pool.clone());
-    let req = Request::builder()
-        .uri("/admin/services?search=nonexistent")
+    let req = common::authed_get("/admin/services?search=nonexistent")
         .body(Body::empty())
         .unwrap();
     let resp = app.oneshot(req).await.unwrap();
@@ -92,8 +90,7 @@ async fn list_services_with_status_filter() {
 
     // Filter by beta
     let app = common::build_test_app(pool.clone());
-    let req = Request::builder()
-        .uri("/admin/services?status=beta")
+    let req = common::authed_get("/admin/services?status=beta")
         .body(Body::empty())
         .unwrap();
     let resp = app.oneshot(req).await.unwrap();
@@ -103,8 +100,7 @@ async fn list_services_with_status_filter() {
 
     // Filter by alpha (should not include our beta service)
     let app = common::build_test_app(pool.clone());
-    let req = Request::builder()
-        .uri("/admin/services?status=alpha")
+    let req = common::authed_get("/admin/services?status=alpha")
         .body(Body::empty())
         .unwrap();
     let resp = app.oneshot(req).await.unwrap();
@@ -135,8 +131,7 @@ async fn get_service() {
     .unwrap();
 
     let app = common::build_test_app(pool);
-    let req = Request::builder()
-        .uri("/admin/services/c0000000-0000-0000-0000-000000000099")
+    let req = common::authed_get("/admin/services/c0000000-0000-0000-0000-000000000099")
         .body(Body::empty())
         .unwrap();
     let resp = app.oneshot(req).await.unwrap();
@@ -173,9 +168,7 @@ async fn update_service_metadata() {
         "tags": ["v2", "production"],
         "status": "deprecated"
     });
-    let req = Request::builder()
-        .method("PUT")
-        .uri("/admin/services/d0000000-0000-0000-0000-000000000099")
+    let req = common::authed_request("PUT", "/admin/services/d0000000-0000-0000-0000-000000000099")
         .header("content-type", "application/json")
         .body(Body::from(payload.to_string()))
         .unwrap();
@@ -210,9 +203,7 @@ async fn update_service_invalid_status_returns_400() {
 
     let app = common::build_test_app(pool);
     let payload = serde_json::json!({"status": "invalid-status"});
-    let req = Request::builder()
-        .method("PUT")
-        .uri("/admin/services/e0000000-0000-0000-0000-000000000099")
+    let req = common::authed_request("PUT", "/admin/services/e0000000-0000-0000-0000-000000000099")
         .header("content-type", "application/json")
         .body(Body::from(payload.to_string()))
         .unwrap();
@@ -256,9 +247,7 @@ async fn delete_service_cascade() {
 
     // Delete service
     let app = common::build_test_app(pool.clone());
-    let req = Request::builder()
-        .method("DELETE")
-        .uri("/admin/services/f0000000-0000-0000-0000-000000000099")
+    let req = common::authed_request("DELETE", "/admin/services/f0000000-0000-0000-0000-000000000099")
         .body(Body::empty())
         .unwrap();
     let resp = app.oneshot(req).await.unwrap();
@@ -271,4 +260,266 @@ async fn delete_service_cascade() {
             .await
             .unwrap();
     assert_eq!(count.0, 0);
+}
+
+#[tokio::test]
+async fn import_service_with_inline_spec() {
+    let pool = common::setup_test_db().await;
+    let app = common::build_test_app(pool);
+
+    let spec = json!({
+        "openapi": "3.0.0",
+        "info": {"title": "Test API", "version": "1.0"},
+        "servers": [{"url": "https://api.example.com/v1"}],
+        "paths": {}
+    });
+
+    let payload = json!({
+        "namespace": "inline-test",
+        "spec_content": spec.to_string()
+    });
+
+    let req = common::authed_request("POST", "/admin/services/import")
+        .header("content-type", "application/json")
+        .body(Body::from(payload.to_string()))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::CREATED);
+
+    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["namespace"], "inline-test");
+    assert_eq!(json["version"], 1);
+}
+
+#[tokio::test]
+async fn reimport_same_hash_returns_409() {
+    let pool = common::setup_test_db().await;
+
+    let spec = json!({
+        "openapi": "3.0.0",
+        "info": {"title": "Dup API", "version": "1.0"},
+        "servers": [{"url": "https://api.example.com/v1"}],
+        "paths": {}
+    });
+
+    let payload = json!({
+        "namespace": "dup-hash",
+        "spec_content": spec.to_string()
+    });
+
+    // First import — should succeed
+    let app = common::build_test_app(pool.clone());
+    let req = common::authed_request("POST", "/admin/services/import")
+        .header("content-type", "application/json")
+        .body(Body::from(payload.to_string()))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::CREATED);
+
+    // Second import with same spec — should 409
+    let app = common::build_test_app(pool);
+    let req = common::authed_request("POST", "/admin/services/import")
+        .header("content-type", "application/json")
+        .body(Body::from(payload.to_string()))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::CONFLICT);
+}
+
+#[tokio::test]
+async fn reimport_different_hash_bumps_version() {
+    let pool = common::setup_test_db().await;
+
+    let spec_v1 = json!({
+        "openapi": "3.0.0",
+        "info": {"title": "Version API", "version": "1.0"},
+        "servers": [{"url": "https://api.example.com/v1"}],
+        "paths": {}
+    });
+
+    let payload_v1 = json!({
+        "namespace": "version-bump",
+        "spec_content": spec_v1.to_string()
+    });
+
+    // First import
+    let app = common::build_test_app(pool.clone());
+    let req = common::authed_request("POST", "/admin/services/import")
+        .header("content-type", "application/json")
+        .body(Body::from(payload_v1.to_string()))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::CREATED);
+
+    // Second import with different spec
+    let spec_v2 = json!({
+        "openapi": "3.0.0",
+        "info": {"title": "Version API", "version": "2.0"},
+        "servers": [{"url": "https://api.example.com/v2"}],
+        "paths": {"/users": {"get": {"summary": "List users"}}}
+    });
+
+    let payload_v2 = json!({
+        "namespace": "version-bump",
+        "spec_content": spec_v2.to_string()
+    });
+
+    let app = common::build_test_app(pool);
+    let req = common::authed_request("POST", "/admin/services/import")
+        .header("content-type", "application/json")
+        .body(Body::from(payload_v2.to_string()))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["version"], 2);
+}
+
+#[tokio::test]
+async fn missing_url_and_content_returns_400() {
+    let pool = common::setup_test_db().await;
+    let app = common::build_test_app(pool);
+
+    let payload = json!({"namespace": "no-spec"});
+    let req = common::authed_request("POST", "/admin/services/import")
+        .header("content-type", "application/json")
+        .body(Body::from(payload.to_string()))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn invalid_json_spec_returns_400() {
+    let pool = common::setup_test_db().await;
+    let app = common::build_test_app(pool);
+
+    let payload = json!({
+        "namespace": "bad-json",
+        "spec_content": "not valid json {{"
+    });
+    let req = common::authed_request("POST", "/admin/services/import")
+        .header("content-type", "application/json")
+        .body(Body::from(payload.to_string()))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn no_servers_in_spec_returns_400() {
+    let pool = common::setup_test_db().await;
+    let app = common::build_test_app(pool);
+
+    let spec = json!({
+        "openapi": "3.0.0",
+        "info": {"title": "No Servers", "version": "1.0"},
+        "paths": {}
+    });
+
+    let payload = json!({
+        "namespace": "no-servers",
+        "spec_content": spec.to_string()
+    });
+
+    let req = common::authed_request("POST", "/admin/services/import")
+        .header("content-type", "application/json")
+        .body(Body::from(payload.to_string()))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn get_service_spec_returns_json() {
+    let pool = common::setup_test_db().await;
+
+    let spec = json!({
+        "openapi": "3.0.0",
+        "info": {"title": "Spec Test", "version": "1.0"},
+        "servers": [{"url": "https://api.example.com"}],
+        "paths": {}
+    });
+
+    // Import a service first
+    let app = common::build_test_app(pool.clone());
+    let payload = json!({
+        "namespace": "spec-fetch",
+        "spec_content": spec.to_string()
+    });
+    let req = common::authed_request("POST", "/admin/services/import")
+        .header("content-type", "application/json")
+        .body(Body::from(payload.to_string()))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::CREATED);
+    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    let created: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let id = created["id"].as_str().unwrap();
+
+    // Fetch the spec
+    let app = common::build_test_app(pool);
+    let req = common::authed_get(&format!("/admin/services/{}/spec", id))
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    let spec_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(spec_json["openapi"], "3.0.0");
+}
+
+#[tokio::test]
+async fn get_service_not_found_returns_404() {
+    let pool = common::setup_test_db().await;
+    let app = common::build_test_app(pool);
+
+    let req = common::authed_get("/admin/services/00000000-0000-0000-0000-000000000000")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn list_services_pagination() {
+    let pool = common::setup_test_db().await;
+
+    // Create two services
+    for ns in &["page-svc-a", "page-svc-b"] {
+        let spec = json!({
+            "openapi": "3.0.0",
+            "info": {"title": ns, "version": "1.0"},
+            "servers": [{"url": "https://api.example.com"}],
+            "paths": {}
+        });
+        let payload = json!({
+            "namespace": ns,
+            "spec_content": spec.to_string()
+        });
+        let app = common::build_test_app(pool.clone());
+        let req = common::authed_request("POST", "/admin/services/import")
+            .header("content-type", "application/json")
+            .body(Body::from(payload.to_string()))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert!(resp.status().is_success(), "import failed for {ns}");
+    }
+
+    // Page 1, limit 1
+    let app = common::build_test_app(pool.clone());
+    let req = common::authed_get("/admin/services?page=1&limit=1")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["data"].as_array().unwrap().len(), 1);
+    assert!(json["total"].as_i64().unwrap() >= 2);
+    assert_eq!(json["page"], 1);
+    assert_eq!(json["limit"], 1);
 }

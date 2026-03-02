@@ -187,9 +187,27 @@ pub fn spawn_metrics_server(port: u16) {
                 };
 
                 tokio::spawn(async move {
+                    // Read timeout to prevent slowloris attacks
+                    let result = tokio::time::timeout(
+                        std::time::Duration::from_secs(5),
+                        async {
+                            // Read and discard the HTTP request (up to 4KB)
+                            use tokio::io::AsyncReadExt;
+                            let mut buf = [0u8; 4096];
+                            let _ = stream.read(&mut buf).await;
+                        },
+                    )
+                    .await;
+
+                    if result.is_err() {
+                        // Timed out reading request
+                        let _ = stream.shutdown().await;
+                        return;
+                    }
+
                     let body = encode_metrics();
                     let response = format!(
-                        "HTTP/1.1 200 OK\r\nContent-Type: text/plain; version=0.0.4\r\nContent-Length: {}\r\n\r\n{}",
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/plain; version=0.0.4\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
                         body.len(),
                         body
                     );

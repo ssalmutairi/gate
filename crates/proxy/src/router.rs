@@ -1,5 +1,6 @@
 use shared::models::{ApiKey, HeaderRule, RateLimit, Route, Target, Upstream};
 use std::collections::HashMap;
+use subtle::ConstantTimeEq;
 use uuid::Uuid;
 
 /// In-memory snapshot of all gateway config.
@@ -151,15 +152,9 @@ impl GatewayConfig {
 }
 
 /// Constant-time byte comparison to prevent timing attacks.
+/// Uses subtle::ConstantTimeEq to avoid leaking length information.
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut result = 0u8;
-    for (x, y) in a.iter().zip(b.iter()) {
-        result |= x ^ y;
-    }
-    result == 0
+    a.ct_eq(b).into()
 }
 
 #[cfg(test)]
@@ -510,5 +505,39 @@ mod tests {
         let cfg = GatewayConfig::new(vec![], vec![], vec![], vec![key], vec![], vec![]);
         // route_b should NOT require auth (no global keys, no keys scoped to route_b)
         assert!(!cfg.route_requires_auth(&route_b));
+    }
+
+    // --- constant_time_eq (subtle::ConstantTimeEq) ---
+
+    #[test]
+    fn constant_time_eq_same_length_same_content() {
+        assert!(constant_time_eq(b"hello", b"hello"));
+    }
+
+    #[test]
+    fn constant_time_eq_same_length_different_content() {
+        assert!(!constant_time_eq(b"hello", b"world"));
+    }
+
+    #[test]
+    fn constant_time_eq_different_length() {
+        // subtle::ct_eq returns false for different lengths
+        assert!(!constant_time_eq(b"short", b"muchlonger"));
+    }
+
+    #[test]
+    fn constant_time_eq_empty_strings() {
+        assert!(constant_time_eq(b"", b""));
+    }
+
+    #[test]
+    fn constant_time_eq_one_empty_one_not() {
+        assert!(!constant_time_eq(b"", b"notempty"));
+        assert!(!constant_time_eq(b"notempty", b""));
+    }
+
+    #[test]
+    fn constant_time_eq_single_byte_difference() {
+        assert!(!constant_time_eq(b"aaaa", b"aaab"));
     }
 }

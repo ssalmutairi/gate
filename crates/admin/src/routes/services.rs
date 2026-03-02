@@ -3,9 +3,78 @@ use axum::Json;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
+use std::net::IpAddr;
 use uuid::Uuid;
 
 use crate::errors::AppError;
+
+/// Maximum spec response size (10 MB).
+const MAX_SPEC_RESPONSE_BYTES: usize = 10 * 1024 * 1024;
+
+/// Check if an IP address is private/reserved (SSRF protection).
+fn is_private_ip(ip: &IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => {
+            v4.is_loopback()          // 127.0.0.0/8
+                || v4.is_private()     // 10/8, 172.16/12, 192.168/16
+                || v4.is_link_local()  // 169.254/16
+                || v4.is_broadcast()   // 255.255.255.255
+                || v4.is_unspecified() // 0.0.0.0
+                || v4.octets()[0] == 100 && (v4.octets()[1] & 0xC0) == 64 // 100.64/10 (CGNAT)
+        }
+        IpAddr::V6(v6) => {
+            v6.is_loopback() || v6.is_unspecified()
+        }
+    }
+}
+
+/// Validate a URL for SSRF: resolve DNS and reject private IPs.
+async fn validate_url_ssrf(url_str: &str) -> Result<(), AppError> {
+    let parsed = url::Url::parse(url_str)
+        .map_err(|e| AppError::Validation(format!("Invalid URL: {}", e)))?;
+
+    let scheme = parsed.scheme();
+    if scheme != "http" && scheme != "https" {
+        return Err(AppError::Validation(
+            "Only http and https URLs are allowed".into(),
+        ));
+    }
+
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| AppError::Validation("URL has no host".into()))?;
+
+    // Try to parse as IP directly
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        if is_private_ip(&ip) {
+            return Err(AppError::Validation(
+                "URL resolves to a private/reserved IP address".into(),
+            ));
+        }
+    } else {
+        // DNS resolve and check all addresses
+        let port = parsed.port().unwrap_or(if scheme == "https" { 443 } else { 80 });
+        let addrs: Vec<std::net::SocketAddr> =
+            tokio::net::lookup_host(format!("{}:{}", host, port))
+                .await
+                .map_err(|e| AppError::Validation(format!("DNS resolution failed: {}", e)))?
+                .collect();
+
+        if addrs.is_empty() {
+            return Err(AppError::Validation("DNS resolution returned no addresses".into()));
+        }
+
+        for addr in &addrs {
+            if is_private_ip(&addr.ip()) {
+                return Err(AppError::Validation(
+                    "URL resolves to a private/reserved IP address".into(),
+                ));
+            }
+        }
+    }
+
+    Ok(())
+}
 
 // --- DTOs ---
 
@@ -133,6 +202,21 @@ pub async fn import_service(
     State(pool): State<PgPool>,
     Json(body): Json<ImportRequest>,
 ) -> Result<(axum::http::StatusCode, Json<ServiceResponse>), AppError> {
+    // Input length validation
+    if body.namespace.len() > 255 {
+        return Err(AppError::Validation("namespace must be 255 characters or fewer".into()));
+    }
+    if let Some(ref desc) = body.description {
+        if desc.len() > 2000 {
+            return Err(AppError::Validation("description must be 2000 characters or fewer".into()));
+        }
+    }
+    if let Some(ref url) = body.url {
+        if url.len() > 2048 {
+            return Err(AppError::Validation("url must be 2048 characters or fewer".into()));
+        }
+    }
+
     // Slugify namespace
     let namespace = slugify(&body.namespace);
     if namespace.is_empty() {
@@ -146,8 +230,12 @@ pub async fn import_service(
             let url = body.url.clone().unwrap_or_else(|| "inline".to_string());
             (bytes, url)
         } else if let Some(ref url) = body.url {
+            // SSRF protection: block private/reserved IP addresses
+            validate_url_ssrf(url).await?;
+
             let client = reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(30))
+                .redirect(reqwest::redirect::Policy::limited(5))
                 .build()
                 .map_err(|e| AppError::Internal(format!("Failed to create HTTP client: {}", e)))?;
 
@@ -164,12 +252,30 @@ pub async fn import_service(
                 )));
             }
 
+            // Enforce response size limit
+            if let Some(cl) = resp.content_length() {
+                if cl as usize > MAX_SPEC_RESPONSE_BYTES {
+                    return Err(AppError::Validation(format!(
+                        "Spec response too large ({} bytes, max {})",
+                        cl, MAX_SPEC_RESPONSE_BYTES
+                    )));
+                }
+            }
+
             let bytes = resp
                 .bytes()
                 .await
-                .map_err(|e| AppError::Internal(format!("Failed to read spec body: {}", e)))?
-                .to_vec();
-            (bytes, url.clone())
+                .map_err(|e| AppError::Internal(format!("Failed to read spec body: {}", e)))?;
+
+            if bytes.len() > MAX_SPEC_RESPONSE_BYTES {
+                return Err(AppError::Validation(format!(
+                    "Spec response too large ({} bytes, max {})",
+                    bytes.len(),
+                    MAX_SPEC_RESPONSE_BYTES
+                )));
+            }
+
+            (bytes.to_vec(), url.clone())
         } else {
             return Err(AppError::Validation(
                 "Either 'url' or 'spec_content' must be provided".into(),
@@ -394,7 +500,9 @@ pub async fn list_services(
     // Build count query
     let mut count_query = sqlx::query_as::<_, (i64,)>(&count_sql);
     if let Some(ref search) = params.search {
-        count_query = count_query.bind(format!("%{search}%"));
+        // Escape ILIKE wildcards to prevent injection of % and _
+        let escaped = search.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+        count_query = count_query.bind(format!("%{escaped}%"));
     }
     if let Some(ref status) = params.status {
         count_query = count_query.bind(status);
@@ -404,7 +512,8 @@ pub async fn list_services(
     // Build list query
     let mut list_query = sqlx::query_as::<_, shared::models::Service>(&list_sql);
     if let Some(ref search) = params.search {
-        list_query = list_query.bind(format!("%{search}%"));
+        let escaped = search.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+        list_query = list_query.bind(format!("%{escaped}%"));
     }
     if let Some(ref status) = params.status {
         list_query = list_query.bind(status);
@@ -567,4 +676,160 @@ pub async fn delete_service(
         .await;
 
     Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::{Ipv4Addr, Ipv6Addr};
+
+    // --- is_private_ip ---
+
+    #[test]
+    fn private_ip_loopback_v4() {
+        assert!(is_private_ip(&IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))));
+        assert!(is_private_ip(&IpAddr::V4(Ipv4Addr::new(127, 255, 255, 255))));
+    }
+
+    #[test]
+    fn private_ip_rfc1918_10() {
+        assert!(is_private_ip(&IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))));
+        assert!(is_private_ip(&IpAddr::V4(Ipv4Addr::new(10, 255, 255, 255))));
+    }
+
+    #[test]
+    fn private_ip_rfc1918_172() {
+        assert!(is_private_ip(&IpAddr::V4(Ipv4Addr::new(172, 16, 0, 1))));
+        assert!(is_private_ip(&IpAddr::V4(Ipv4Addr::new(172, 31, 255, 255))));
+        // 172.32.x.x is NOT private
+        assert!(!is_private_ip(&IpAddr::V4(Ipv4Addr::new(172, 32, 0, 1))));
+    }
+
+    #[test]
+    fn private_ip_rfc1918_192() {
+        assert!(is_private_ip(&IpAddr::V4(Ipv4Addr::new(192, 168, 0, 1))));
+        assert!(is_private_ip(&IpAddr::V4(Ipv4Addr::new(192, 168, 255, 255))));
+    }
+
+    #[test]
+    fn private_ip_link_local() {
+        assert!(is_private_ip(&IpAddr::V4(Ipv4Addr::new(169, 254, 1, 1))));
+    }
+
+    #[test]
+    fn private_ip_broadcast() {
+        assert!(is_private_ip(&IpAddr::V4(Ipv4Addr::new(255, 255, 255, 255))));
+    }
+
+    #[test]
+    fn private_ip_unspecified() {
+        assert!(is_private_ip(&IpAddr::V4(Ipv4Addr::UNSPECIFIED)));
+        assert!(is_private_ip(&IpAddr::V6(Ipv6Addr::UNSPECIFIED)));
+    }
+
+    #[test]
+    fn private_ip_cgnat() {
+        assert!(is_private_ip(&IpAddr::V4(Ipv4Addr::new(100, 64, 0, 1))));
+        assert!(is_private_ip(&IpAddr::V4(Ipv4Addr::new(100, 127, 255, 255))));
+        // 100.128.x.x is NOT CGNAT
+        assert!(!is_private_ip(&IpAddr::V4(Ipv4Addr::new(100, 128, 0, 1))));
+    }
+
+    #[test]
+    fn private_ip_v6_loopback() {
+        assert!(is_private_ip(&IpAddr::V6(Ipv6Addr::LOCALHOST)));
+    }
+
+    #[test]
+    fn public_ip_allowed() {
+        assert!(!is_private_ip(&IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8))));
+        assert!(!is_private_ip(&IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1))));
+        assert!(!is_private_ip(&IpAddr::V4(Ipv4Addr::new(203, 0, 113, 1))));
+    }
+
+    // --- validate_url_ssrf ---
+
+    #[tokio::test]
+    async fn ssrf_blocks_loopback_ip() {
+        let result = validate_url_ssrf("http://127.0.0.1/spec.json").await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            crate::errors::AppError::Validation(msg) => assert!(msg.contains("private"), "expected 'private' in: {msg}"),
+            other => panic!("expected Validation error, got: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn ssrf_blocks_private_ip() {
+        let result = validate_url_ssrf("http://192.168.1.1/spec.json").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn ssrf_blocks_10_network() {
+        let result = validate_url_ssrf("http://10.0.0.1/spec.json").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn ssrf_blocks_unspecified() {
+        let result = validate_url_ssrf("http://0.0.0.0/spec.json").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn ssrf_blocks_ftp_scheme() {
+        let result = validate_url_ssrf("ftp://example.com/spec.json").await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            crate::errors::AppError::Validation(msg) => assert!(msg.contains("http"), "expected 'http' in: {msg}"),
+            other => panic!("expected Validation error, got: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn ssrf_blocks_file_scheme() {
+        let result = validate_url_ssrf("file:///etc/passwd").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn ssrf_rejects_invalid_url() {
+        let result = validate_url_ssrf("not-a-url").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn ssrf_allows_public_ip() {
+        // 8.8.8.8 is a public IP — should be allowed
+        let result = validate_url_ssrf("https://8.8.8.8/spec.json").await;
+        assert!(result.is_ok());
+    }
+
+    // --- slugify ---
+
+    #[test]
+    fn slugify_basic() {
+        assert_eq!(slugify("Pet Store"), "pet-store");
+    }
+
+    #[test]
+    fn slugify_special_chars() {
+        assert_eq!(slugify("My API v2.0!"), "my-api-v2-0");
+    }
+
+    #[test]
+    fn slugify_already_slug() {
+        assert_eq!(slugify("my-api"), "my-api");
+    }
+
+    #[test]
+    fn slugify_empty() {
+        assert_eq!(slugify(""), "");
+    }
+
+    #[test]
+    fn slugify_only_special() {
+        assert_eq!(slugify("!!!"), "");
+    }
 }

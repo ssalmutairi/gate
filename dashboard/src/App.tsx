@@ -23,10 +23,7 @@ const queryClient = new QueryClient({
 });
 
 function App() {
-  // Set admin token if not set
-  if (!localStorage.getItem('admin_token')) {
-    localStorage.setItem('admin_token', 'changeme');
-  }
+  // Admin token is set via the Settings page — no default hardcoded
 
   return (
     <ThemeProvider>

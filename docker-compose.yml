@@ -30,7 +30,7 @@ services:
       PROXY_PORT: 8080
       ADMIN_PORT: 9000
       ADMIN_BIND_ADDR: 0.0.0.0
-      ADMIN_TOKEN: ${ADMIN_TOKEN:-changeme}
+      ADMIN_TOKEN: ${ADMIN_TOKEN:?ADMIN_TOKEN must be set}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       CONFIG_POLL_INTERVAL_SECS: ${CONFIG_POLL_INTERVAL_SECS:-5}
       HEALTH_CHECK_INTERVAL_SECS: ${HEALTH_CHECK_INTERVAL_SECS:-10}
@@ -61,7 +61,7 @@ services:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: admin
       GF_AUTH_ANONYMOUS_ENABLED: "true"
-      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning
       - ./grafana/dashboards:/var/lib/grafana/dashboards

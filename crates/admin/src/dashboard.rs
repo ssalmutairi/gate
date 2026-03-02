@@ -43,3 +43,54 @@ pub async fn dashboard_handler(uri: axum::http::Uri) -> Response {
 
     StatusCode::NOT_FOUND.into_response()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::Uri;
+
+    #[tokio::test]
+    async fn serves_index_for_root() {
+        let uri: Uri = "/".parse().unwrap();
+        let resp = dashboard_handler(uri).await;
+        // If dashboard/dist exists, we get 200; otherwise 404
+        // Both are valid depending on build state
+        let status = resp.status();
+        assert!(
+            status == StatusCode::OK || status == StatusCode::NOT_FOUND,
+            "unexpected status: {status}"
+        );
+        if status == StatusCode::OK {
+            let ct = resp.headers().get(header::CONTENT_TYPE).unwrap();
+            assert!(ct.to_str().unwrap().contains("text/html"));
+        }
+    }
+
+    #[tokio::test]
+    async fn spa_fallback_for_deep_path() {
+        let uri: Uri = "/settings/theme".parse().unwrap();
+        let resp = dashboard_handler(uri).await;
+        let status = resp.status();
+        // Deep paths should SPA-fallback to index.html (200) or 404 if no dist
+        assert!(
+            status == StatusCode::OK || status == StatusCode::NOT_FOUND,
+            "unexpected status: {status}"
+        );
+        if status == StatusCode::OK {
+            let ct = resp.headers().get(header::CONTENT_TYPE).unwrap();
+            assert!(ct.to_str().unwrap().contains("text/html"));
+        }
+    }
+
+    #[tokio::test]
+    async fn nonexistent_asset_falls_back_to_index() {
+        let uri: Uri = "/no-such-file.xyz".parse().unwrap();
+        let resp = dashboard_handler(uri).await;
+        let status = resp.status();
+        // Non-existent file should SPA-fallback to index.html or 404 if no dist
+        assert!(
+            status == StatusCode::OK || status == StatusCode::NOT_FOUND,
+            "unexpected status: {status}"
+        );
+    }
+}

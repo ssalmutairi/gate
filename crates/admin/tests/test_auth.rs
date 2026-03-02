@@ -28,7 +28,7 @@ async fn health_no_auth_required() {
 async fn auth_token_scenarios() {
     let pool = common::setup_test_db().await;
 
-    // Scenario 1: No token configured → access allowed
+    // Scenario 1: No token configured → access forbidden (fail-closed)
     std::env::remove_var("ADMIN_TOKEN");
     let app = common::build_test_app(pool.clone());
     let req = Request::builder()
@@ -36,7 +36,7 @@ async fn auth_token_scenarios() {
         .body(Body::empty())
         .unwrap();
     let resp = app.oneshot(req).await.unwrap();
-    assert_eq!(resp.status(), StatusCode::OK, "no token configured should allow access");
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN, "no token configured should reject access");
 
     // Scenario 2: Token configured, valid token → access allowed
     std::env::set_var("ADMIN_TOKEN", "test-secret");
@@ -68,6 +68,6 @@ async fn auth_token_scenarios() {
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED, "wrong token should return 401");
 
-    // Clean up
-    std::env::remove_var("ADMIN_TOKEN");
+    // Restore test token for other tests
+    std::env::set_var("ADMIN_TOKEN", common::TEST_ADMIN_TOKEN);
 }

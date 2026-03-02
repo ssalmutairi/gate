@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -eo pipefail
 
 # ─── Configuration ───────────────────────────────────────────────────────────
 ADMIN_PORT=19000
@@ -14,6 +14,9 @@ DATABASE_URL="postgres://${DB_USER}:${DB_PASS}@${DB_HOST}:${DB_PORT}/${DB_NAME}"
 
 ADMIN_URL="http://127.0.0.1:${ADMIN_PORT}"
 PROXY_URL="http://127.0.0.1:${PROXY_PORT}"
+
+# Auth token for E2E admin API calls
+E2E_ADMIN_TOKEN="e2e-test-token"
 
 PASSED=0
 FAILED=0
@@ -39,16 +42,36 @@ assert_status() {
     fi
 }
 
+# Admin API helper — adds auth token automatically
+admin_curl() {
+    curl -H "X-Admin-Token: ${E2E_ADMIN_TOKEN}" "$@"
+}
+
 cleanup() {
     log "Cleaning up..."
-    for pid in "${PIDS[@]}"; do
-        kill "$pid" 2>/dev/null || true
-        wait "$pid" 2>/dev/null || true
-    done
+    if [ ${#PIDS[@]} -gt 0 ]; then
+        # Use SIGINT — Pingora exits cleanly on SIGINT (not SIGTERM),
+        # which allows LLVM coverage profraw data to be flushed via atexit.
+        for pid in "${PIDS[@]}"; do
+            kill -INT "$pid" 2>/dev/null || true
+        done
+        sleep 3
+        # Force-kill anything still running
+        for pid in "${PIDS[@]}"; do
+            kill -9 "$pid" 2>/dev/null || true
+        done
+    fi
 
-    # Drop test database
-    docker exec "$(docker ps -q --filter publish=${DB_PORT})" \
-        psql -U "$DB_USER" -d gate -c "DROP DATABASE IF EXISTS ${DB_NAME};" 2>/dev/null || true
+    # Drop test database — terminate active connections first
+    local container
+    container=$(docker ps -q --filter "publish=${DB_PORT}" | head -1)
+    if [ -n "$container" ]; then
+        docker exec "$container" psql -U "$DB_USER" -d gate \
+            -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '${DB_NAME}' AND pid <> pg_backend_pid();" 2>/dev/null || true
+        sleep 0.5
+        docker exec "$container" psql -U "$DB_USER" -d gate \
+            -c "DROP DATABASE IF EXISTS ${DB_NAME};" 2>/dev/null || true
+    fi
     log "Cleanup complete."
 }
 trap cleanup EXIT
@@ -64,7 +87,10 @@ if [ -z "$PG_CONTAINER" ]; then
 fi
 log "PostgreSQL container: ${PG_CONTAINER}"
 
-# Create test database
+# Create test database (terminate lingering connections first)
+docker exec "$PG_CONTAINER" psql -U "$DB_USER" -d gate \
+    -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '${DB_NAME}' AND pid <> pg_backend_pid();" 2>/dev/null || true
+sleep 0.5
 docker exec "$PG_CONTAINER" psql -U "$DB_USER" -d gate \
     -c "DROP DATABASE IF EXISTS ${DB_NAME};" 2>/dev/null || true
 docker exec "$PG_CONTAINER" psql -U "$DB_USER" -d gate \
@@ -88,6 +114,22 @@ fi
 if [ ! -f "$ADMIN_BIN" ] || [ ! -f "$PROXY_BIN" ]; then
     echo "ERROR: Binaries not found"
     exit 1
+fi
+
+# Detect if binaries are debug (unoptimized) builds — need longer timeouts
+IS_DEBUG=false
+if [[ "$ADMIN_BIN" == *"/debug/"* ]]; then
+    IS_DEBUG=true
+    log "Detected debug binaries — using extended timeouts"
+fi
+
+# Timeouts: debug builds are slower
+if $IS_DEBUG; then
+    STARTUP_WAIT=4
+    RELOAD_WAIT=4
+else
+    STARTUP_WAIT=2
+    RELOAD_WAIT=2
 fi
 
 # ─── Start echo server ──────────────────────────────────────────────────────
@@ -117,7 +159,7 @@ log "Starting admin on :${ADMIN_PORT}..."
 DATABASE_URL="$DATABASE_URL" \
     ADMIN_PORT="$ADMIN_PORT" \
     ADMIN_BIND_ADDR="127.0.0.1" \
-    ADMIN_TOKEN="" \
+    ADMIN_TOKEN="$E2E_ADMIN_TOKEN" \
     LOG_LEVEL="warn" \
     "$ADMIN_BIN" &>/dev/null &
 PIDS+=($!)
@@ -146,7 +188,7 @@ DATABASE_URL="$DATABASE_URL" \
     HEALTH_CHECK_INTERVAL_SECS="60" \
     "$PROXY_BIN" &>/dev/null &
 PIDS+=($!)
-sleep 2
+sleep "$STARTUP_WAIT"
 log "Proxy started"
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -161,24 +203,24 @@ echo ""
 echo "── Basic Routing ──"
 
 # Create upstream with echo target
-UPSTREAM=$(curl -sf -X POST "${ADMIN_URL}/admin/upstreams" \
+UPSTREAM=$(admin_curl -sf -X POST "${ADMIN_URL}/admin/upstreams" \
     -H "Content-Type: application/json" \
     -d '{"name":"echo-upstream"}')
 UPSTREAM_ID=$(echo "$UPSTREAM" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
 
 # Add target
-curl -sf -X POST "${ADMIN_URL}/admin/upstreams/${UPSTREAM_ID}/targets" \
+admin_curl -sf -X POST "${ADMIN_URL}/admin/upstreams/${UPSTREAM_ID}/targets" \
     -H "Content-Type: application/json" \
     -d "{\"host\":\"127.0.0.1\",\"port\":${ECHO_PORT}}" >/dev/null
 
 # Create route
-ROUTE=$(curl -sf -X POST "${ADMIN_URL}/admin/routes" \
+ROUTE=$(admin_curl -sf -X POST "${ADMIN_URL}/admin/routes" \
     -H "Content-Type: application/json" \
     -d "{\"name\":\"echo-route\",\"path_prefix\":\"/echo\",\"upstream_id\":\"${UPSTREAM_ID}\",\"strip_prefix\":true}")
 ROUTE_ID=$(echo "$ROUTE" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
 
 # Wait for config reload
-sleep 2
+sleep "$RELOAD_WAIT"
 
 # Test proxy forwards to echo
 STATUS=$(curl -sf -o /dev/null -w "%{http_code}" "${PROXY_URL}/echo/" 2>/dev/null || echo "000")
@@ -193,11 +235,11 @@ echo ""
 echo "── Body Size Limit ──"
 
 # Update route with body limit
-curl -sf -X PUT "${ADMIN_URL}/admin/routes/${ROUTE_ID}" \
+admin_curl -sf -X PUT "${ADMIN_URL}/admin/routes/${ROUTE_ID}" \
     -H "Content-Type: application/json" \
     -d '{"max_body_bytes":100}' >/dev/null
 
-sleep 2
+sleep "$RELOAD_WAIT"
 
 # Small body should pass
 STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "${PROXY_URL}/echo/" \
@@ -213,23 +255,23 @@ STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "${PROXY_URL}/echo/" \
 assert_status "POST /echo/ 200-byte body returns 413" "413" "$STATUS"
 
 # Remove body limit for subsequent tests
-curl -sf -X PUT "${ADMIN_URL}/admin/routes/${ROUTE_ID}" \
+admin_curl -sf -X PUT "${ADMIN_URL}/admin/routes/${ROUTE_ID}" \
     -H "Content-Type: application/json" \
     -d '{"max_body_bytes":null}' >/dev/null
 
-sleep 2
+sleep "$RELOAD_WAIT"
 
 # ─── 3. API Key Auth ────────────────────────────────────────────────────────
 echo ""
 echo "── API Key Auth ──"
 
 # Create API key scoped to our route
-KEY_RESP=$(curl -sf -X POST "${ADMIN_URL}/admin/api-keys" \
+KEY_RESP=$(admin_curl -sf -X POST "${ADMIN_URL}/admin/api-keys" \
     -H "Content-Type: application/json" \
     -d "{\"name\":\"test-key\",\"route_id\":\"${ROUTE_ID}\"}")
 API_KEY=$(echo "$KEY_RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['key'])")
 
-sleep 2
+sleep "$RELOAD_WAIT"
 
 # Without key → 401
 STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${PROXY_URL}/echo/" 2>/dev/null || echo "000")
@@ -245,11 +287,11 @@ echo ""
 echo "── Rate Limiting ──"
 
 # Create rate limit: 2 rps
-curl -sf -X POST "${ADMIN_URL}/admin/rate-limits" \
+admin_curl -sf -X POST "${ADMIN_URL}/admin/rate-limits" \
     -H "Content-Type: application/json" \
     -d "{\"route_id\":\"${ROUTE_ID}\",\"requests_per_second\":2}" >/dev/null
 
-sleep 2
+sleep "$RELOAD_WAIT"
 
 # Fire 3 requests rapidly — third should be rate limited (429)
 STATUS1=$(curl -s -o /dev/null -w "%{http_code}" -H "X-API-Key: ${API_KEY}" \
@@ -271,18 +313,22 @@ echo ""
 echo "── Service Metadata (Admin API) ──"
 
 # Create upstream for service
-SVC_UP=$(curl -sf -X POST "${ADMIN_URL}/admin/upstreams" \
+SVC_UP=$(admin_curl -sf -X POST "${ADMIN_URL}/admin/upstreams" \
     -H "Content-Type: application/json" \
     -d '{"name":"svc-upstream"}')
 SVC_UP_ID=$(echo "$SVC_UP" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
 
 # Insert service directly via admin SQL-backed endpoint isn't available without import
 # Instead, test list, which should be empty initially for new namespace
-STATUS=$(curl -sf -o /dev/null -w "%{http_code}" "${ADMIN_URL}/admin/services" 2>/dev/null || echo "000")
+STATUS=$(curl -sf -o /dev/null -w "%{http_code}" \
+    -H "X-Admin-Token: ${E2E_ADMIN_TOKEN}" \
+    "${ADMIN_URL}/admin/services" 2>/dev/null || echo "000")
 assert_status "GET /admin/services returns 200" "200" "$STATUS"
 
 # Verify stats endpoint works
-STATUS=$(curl -sf -o /dev/null -w "%{http_code}" "${ADMIN_URL}/admin/stats" 2>/dev/null || echo "000")
+STATUS=$(curl -sf -o /dev/null -w "%{http_code}" \
+    -H "X-Admin-Token: ${E2E_ADMIN_TOKEN}" \
+    "${ADMIN_URL}/admin/stats" 2>/dev/null || echo "000")
 assert_status "GET /admin/stats returns 200" "200" "$STATUS"
 
 # ═══════════════════════════════════════════════════════════════════════════════

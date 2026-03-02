@@ -123,6 +123,9 @@ pub async fn create_upstream(
     if body.name.trim().is_empty() {
         return Err(AppError::Validation("name is required".into()));
     }
+    if body.name.len() > 255 {
+        return Err(AppError::Validation("name must be 255 characters or fewer".into()));
+    }
 
     let algorithm = body.algorithm.unwrap_or_else(|| "round_robin".into());
     if algorithm != "round_robin" && algorithm != "weighted_round_robin" && algorithm != "least_connections" {
@@ -265,6 +268,16 @@ pub async fn add_target(
 
     if body.host.trim().is_empty() {
         return Err(AppError::Validation("host is required".into()));
+    }
+    if body.host.len() > 255 {
+        return Err(AppError::Validation("host must be 255 characters or fewer".into()));
+    }
+    // Reject hosts with whitespace, slashes, or other invalid characters
+    let host = body.host.trim();
+    if host.contains(|c: char| c.is_whitespace() || c == '/' || c == '\\' || c == '@') {
+        return Err(AppError::Validation(
+            "host contains invalid characters (no spaces, slashes, or @ allowed)".into(),
+        ));
     }
     if body.port <= 0 || body.port > 65535 {
         return Err(AppError::Validation("port must be between 1 and 65535".into()));

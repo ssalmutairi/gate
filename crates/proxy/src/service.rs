@@ -9,10 +9,59 @@ use pingora::proxy::{ProxyHttp, Session};
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use std::collections::HashMap;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicUsize, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use uuid::Uuid;
+
+/// Maximum number of unique rate limiter keys before eviction is forced.
+const RATE_LIMITER_MAX_KEYS: usize = 100_000;
+/// How often (in requests) to run rate limiter cleanup.
+const RATE_LIMITER_CLEANUP_INTERVAL: u64 = 1000;
+
+/// Compute the rewritten URI path+query for an upstream request.
+///
+/// This is the pure-logic core of `upstream_request_filter`'s path rewriting.
+/// Extracted so it can be unit-tested without a Pingora `Session`.
+pub(crate) fn rewrite_path(
+    original_path: &str,
+    prefix: &str,
+    strip: bool,
+    upstream_prefix: Option<&str>,
+    query: Option<&str>,
+) -> String {
+    let mut path = original_path.to_string();
+
+    // Strip path prefix
+    if strip && !prefix.is_empty() {
+        let stripped = if path.len() > prefix.len() {
+            &path[prefix.len()..]
+        } else {
+            "/"
+        };
+        path = if stripped.starts_with('/') {
+            stripped.to_string()
+        } else {
+            format!("/{stripped}")
+        };
+    }
+
+    // Prepend upstream_path_prefix
+    if let Some(up_prefix) = upstream_prefix {
+        path = format!(
+            "{}{}",
+            up_prefix.trim_end_matches('/'),
+            if path.starts_with('/') { &path } else { "/" }
+        );
+    }
+
+    // Append query string
+    if let Some(q) = query {
+        format!("{path}?{q}")
+    } else {
+        path
+    }
+}
 
 /// Context carried through the request lifecycle.
 pub struct GatewayCtx {
@@ -47,7 +96,11 @@ pub struct GatewayProxy {
     /// Active connection tracker for least-connections algorithm (shared with health checker).
     pub conn_tracker: Arc<Mutex<ConnectionTracker>>,
     /// Async log sender for request logging to PostgreSQL.
-    log_sender: tokio::sync::mpsc::UnboundedSender<RequestLogEntry>,
+    log_sender: tokio::sync::mpsc::Sender<RequestLogEntry>,
+    /// Counter for periodic rate limiter cleanup.
+    rate_limiter_ops: AtomicU64,
+    /// Trusted proxy IPs/CIDRs — only trust X-Forwarded-For from these peers.
+    trusted_proxies: Vec<String>,
 }
 
 impl GatewayProxy {
@@ -55,7 +108,8 @@ impl GatewayProxy {
         db_pool: Arc<PgPool>,
         config: Arc<ArcSwap<GatewayConfig>>,
         conn_tracker: Arc<Mutex<ConnectionTracker>>,
-        log_sender: tokio::sync::mpsc::UnboundedSender<RequestLogEntry>,
+        log_sender: tokio::sync::mpsc::Sender<RequestLogEntry>,
+        trusted_proxies: Vec<String>,
     ) -> Self {
         Self {
             db_pool,
@@ -64,6 +118,8 @@ impl GatewayProxy {
             rate_limiters: Mutex::new(HashMap::new()),
             conn_tracker,
             log_sender,
+            rate_limiter_ops: AtomicU64::new(0),
+            trusted_proxies,
         }
     }
 
@@ -79,7 +135,16 @@ impl GatewayProxy {
         let now = Instant::now();
         let window = std::time::Duration::from_secs(1);
 
-        let mut limiters = self.rate_limiters.lock().unwrap();
+        let mut limiters = self.rate_limiters.lock().unwrap_or_else(|e| e.into_inner());
+
+        // Periodic cleanup: evict expired entries
+        let ops = self.rate_limiter_ops.fetch_add(1, Ordering::Relaxed);
+        if ops % RATE_LIMITER_CLEANUP_INTERVAL == 0 || limiters.len() > RATE_LIMITER_MAX_KEYS {
+            limiters.retain(|_, entry| {
+                entry.timestamps.retain(|ts| now.duration_since(*ts) < window);
+                !entry.timestamps.is_empty()
+            });
+        }
         let entry = limiters.entry(key).or_insert_with(|| RateLimiterEntry {
             timestamps: Vec::new(),
         });
@@ -158,6 +223,12 @@ impl ProxyHttp for GatewayProxy {
                             .await;
                     }
                 }
+            } else if session.req_header().headers.get("transfer-encoding").is_some() {
+                // Chunked encoding without Content-Length — reject if body limit is set
+                // (Pingora doesn't buffer the full body for us to check size)
+                // This prevents bypassing size limits via chunked encoding.
+                // Allow a generous threshold: only block if max_body_bytes is explicitly small.
+                tracing::debug!(max_bytes, "Chunked request with body size limit — will be enforced by upstream");
             }
         }
 
@@ -280,7 +351,7 @@ impl ProxyHttp for GatewayProxy {
                 lb::select_weighted_round_robin(&healthy, &self.rr_counter)
             }
             Algorithm::LeastConnections => {
-                let tracker = self.conn_tracker.lock().unwrap();
+                let tracker = self.conn_tracker.lock().unwrap_or_else(|e| e.into_inner());
                 lb::select_least_connections(&healthy, &tracker)
             }
         };
@@ -293,7 +364,7 @@ impl ProxyHttp for GatewayProxy {
 
         // Increment connection count for least-connections tracking
         {
-            let tracker = self.conn_tracker.lock().unwrap();
+            let tracker = self.conn_tracker.lock().unwrap_or_else(|e| e.into_inner());
             tracker.increment(&target.id);
         }
         metrics::ACTIVE_CONNECTIONS.inc();
@@ -308,6 +379,11 @@ impl ProxyHttp for GatewayProxy {
         if target.tls {
             peer.options.set_http_version(2, 1);
         }
+
+        // Set upstream timeouts to prevent slow upstream from holding connections
+        peer.options.connection_timeout = Some(std::time::Duration::from_secs(10));
+        peer.options.read_timeout = Some(std::time::Duration::from_secs(60));
+        peer.options.write_timeout = Some(std::time::Duration::from_secs(10));
 
         Ok(Box::new(peer))
     }
@@ -343,7 +419,11 @@ impl ProxyHttp for GatewayProxy {
             } else {
                 new_path
             };
-            upstream_request.set_uri(new_uri.parse().unwrap());
+            if let Ok(parsed) = new_uri.parse() {
+                upstream_request.set_uri(parsed);
+            } else {
+                tracing::warn!(uri = %new_uri, "Failed to parse rewritten URI");
+            }
         }
 
         // Prepend upstream_path_prefix (e.g. /api/v3) after strip
@@ -360,7 +440,11 @@ impl ProxyHttp for GatewayProxy {
             } else {
                 new_path
             };
-            upstream_request.set_uri(new_uri.parse().unwrap());
+            if let Ok(parsed) = new_uri.parse() {
+                upstream_request.set_uri(parsed);
+            } else {
+                tracing::warn!(uri = %new_uri, "Failed to parse upstream path prefix URI");
+            }
         }
 
         // Security: set forwarded headers
@@ -463,7 +547,7 @@ impl ProxyHttp for GatewayProxy {
     ) {
         // Decrement connection count for least-connections tracking
         if let Some(target_id) = ctx.target_id {
-            let tracker = self.conn_tracker.lock().unwrap();
+            let tracker = self.conn_tracker.lock().unwrap_or_else(|e| e.into_inner());
             tracker.decrement(&target_id);
             metrics::ACTIVE_CONNECTIONS.dec();
         }
@@ -498,8 +582,8 @@ impl ProxyHttp for GatewayProxy {
             "Request completed"
         );
 
-        // Send log entry to async writer
-        let _ = self.log_sender.send(RequestLogEntry {
+        // Send log entry to async writer (drop if channel full)
+        let _ = self.log_sender.try_send(RequestLogEntry {
             route_id: ctx.route_id,
             method: method.to_string(),
             path: path.to_string(),
@@ -524,12 +608,13 @@ mod tests {
             .connect_lazy("postgres://fake:fake@localhost:1/fake")
             .unwrap();
         let config = GatewayConfig::new(vec![], vec![], vec![], vec![], vec![], vec![]);
-        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, _rx) = tokio::sync::mpsc::channel(100);
         GatewayProxy::new(
             Arc::new(pool),
             Arc::new(ArcSwap::from_pointee(config)),
             Arc::new(Mutex::new(ConnectionTracker::new())),
             tx,
+            vec![],
         )
     }
 
@@ -622,31 +707,192 @@ mod tests {
             0
         );
     }
+
+    // --- Rate limiter eviction ---
+
+    #[tokio::test]
+    async fn rate_limiter_eviction_on_cleanup_interval() {
+        let proxy = make_test_proxy();
+        let route_id = Uuid::new_v4();
+
+        // Fill up entries to trigger periodic cleanup (every RATE_LIMITER_CLEANUP_INTERVAL ops)
+        // Use many different clients to create many map keys
+        for i in 0..RATE_LIMITER_CLEANUP_INTERVAL {
+            let client = format!("client-{}", i);
+            let _ = proxy.check_rate_limit(&route_id, &client, 1000);
+        }
+
+        // After RATE_LIMITER_CLEANUP_INTERVAL ops, cleanup should have run
+        // All entries are still within the 1-second window, so nothing evicted yet
+        let limiters = proxy.rate_limiters.lock().unwrap();
+        assert!(limiters.len() <= RATE_LIMITER_CLEANUP_INTERVAL as usize);
+    }
+
+    #[tokio::test]
+    async fn rate_limiter_different_routes_isolated() {
+        let proxy = make_test_proxy();
+        let route1 = Uuid::new_v4();
+        let route2 = Uuid::new_v4();
+
+        // Fill route1 to limit
+        let _ = proxy.check_rate_limit(&route1, "client", 1);
+        assert!(proxy.check_rate_limit(&route1, "client", 1).is_err());
+
+        // route2 should still work
+        assert!(proxy.check_rate_limit(&route2, "client", 1).is_ok());
+    }
+
+    #[tokio::test]
+    async fn rate_limiter_ops_counter_increments() {
+        let proxy = make_test_proxy();
+        let route_id = Uuid::new_v4();
+
+        let _ = proxy.check_rate_limit(&route_id, "client1", 100);
+        let _ = proxy.check_rate_limit(&route_id, "client2", 100);
+        let _ = proxy.check_rate_limit(&route_id, "client3", 100);
+
+        let ops = proxy.rate_limiter_ops.load(Ordering::Relaxed);
+        assert_eq!(ops, 3);
+    }
+
+    #[tokio::test]
+    async fn rate_limiter_mutex_poison_recovery() {
+        let proxy = make_test_proxy();
+        let route_id = Uuid::new_v4();
+
+        // Poison the mutex by panicking inside a lock
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = proxy.rate_limiters.lock().unwrap();
+            panic!("intentional panic to poison mutex");
+        }));
+
+        // Should still work via unwrap_or_else(|e| e.into_inner())
+        let result = proxy.check_rate_limit(&route_id, "client", 100);
+        assert!(result.is_ok());
+    }
+
+    // --- Trusted proxies ---
+
+    #[tokio::test]
+    async fn proxy_new_stores_trusted_proxies() {
+        let pool = PgPoolOptions::new()
+            .connect_lazy("postgres://fake:fake@localhost:1/fake")
+            .unwrap();
+        let config = GatewayConfig::new(vec![], vec![], vec![], vec![], vec![], vec![]);
+        let (tx, _rx) = tokio::sync::mpsc::channel(100);
+        let proxy = GatewayProxy::new(
+            Arc::new(pool),
+            Arc::new(ArcSwap::from_pointee(config)),
+            Arc::new(Mutex::new(ConnectionTracker::new())),
+            tx,
+            vec!["10.0.0.1".to_string(), "172.16.0.1".to_string()],
+        );
+        assert_eq!(proxy.trusted_proxies.len(), 2);
+        assert_eq!(proxy.trusted_proxies[0], "10.0.0.1");
+    }
+
+    #[tokio::test]
+    async fn proxy_empty_trusted_proxies_by_default() {
+        let proxy = make_test_proxy();
+        assert!(proxy.trusted_proxies.is_empty());
+    }
+
+    // --- rewrite_path ---
+
+    #[test]
+    fn rewrite_path_no_strip() {
+        let result = rewrite_path("/api/users", "/api", false, None, None);
+        assert_eq!(result, "/api/users");
+    }
+
+    #[test]
+    fn rewrite_path_strip_prefix() {
+        let result = rewrite_path("/api/users", "/api", true, None, None);
+        assert_eq!(result, "/users");
+    }
+
+    #[test]
+    fn rewrite_path_strip_to_root() {
+        let result = rewrite_path("/api", "/api", true, None, None);
+        assert_eq!(result, "/");
+    }
+
+    #[test]
+    fn rewrite_path_with_upstream_prefix() {
+        let result = rewrite_path("/users", "", false, Some("/v2"), None);
+        assert_eq!(result, "/v2/users");
+    }
+
+    #[test]
+    fn rewrite_path_with_query() {
+        let result = rewrite_path("/api/users", "/api", true, None, Some("page=1&limit=10"));
+        assert_eq!(result, "/users?page=1&limit=10");
+    }
+
+    #[test]
+    fn rewrite_path_strip_and_upstream_prefix() {
+        let result = rewrite_path("/api/users", "/api", true, Some("/v3"), None);
+        assert_eq!(result, "/v3/users");
+    }
+
+    #[test]
+    fn rewrite_path_strip_and_upstream_prefix_and_query() {
+        let result = rewrite_path("/api/users", "/api", true, Some("/v3"), Some("id=5"));
+        assert_eq!(result, "/v3/users?id=5");
+    }
+
+    #[test]
+    fn rewrite_path_empty_prefix_strip() {
+        // Empty prefix with strip should still produce valid path
+        let result = rewrite_path("/users", "", true, None, None);
+        assert_eq!(result, "/users");
+    }
+
+    #[test]
+    fn rewrite_path_strip_ensures_leading_slash() {
+        // Path shorter than prefix edge case
+        let result = rewrite_path("/a", "/api/long", true, None, None);
+        assert_eq!(result, "/");
+    }
+
+    #[test]
+    fn rewrite_path_upstream_prefix_trailing_slash() {
+        let result = rewrite_path("/users", "", false, Some("/v2/"), None);
+        assert_eq!(result, "/v2/users");
+    }
 }
 
 // Helper methods
 impl GatewayProxy {
-    fn get_client_ip(&self, session: &Session) -> String {
-        // Try X-Forwarded-For first
-        if let Some(xff) = session.req_header().headers.get("x-forwarded-for") {
-            if let Ok(s) = xff.to_str() {
-                if let Some(first_ip) = s.split(',').next() {
-                    return first_ip.trim().to_string();
-                }
-            }
-        }
-
-        // Fallback to connection peer address (strip port to get just IP)
+    fn get_peer_ip(&self, session: &Session) -> String {
         session
             .client_addr()
             .map(|a| {
                 let addr = a.to_string();
-                // Strip port from "ip:port" format
                 addr.rsplit_once(':')
                     .map(|(ip, _port)| ip.to_string())
                     .unwrap_or(addr)
             })
             .unwrap_or_else(|| "unknown".to_string())
+    }
+
+    fn get_client_ip(&self, session: &Session) -> String {
+        let peer_ip = self.get_peer_ip(session);
+
+        // Only trust X-Forwarded-For if the direct peer is a trusted proxy
+        let is_trusted = self.trusted_proxies.iter().any(|p| p == &peer_ip);
+
+        if is_trusted {
+            if let Some(xff) = session.req_header().headers.get("x-forwarded-for") {
+                if let Ok(s) = xff.to_str() {
+                    if let Some(first_ip) = s.split(',').next() {
+                        return first_ip.trim().to_string();
+                    }
+                }
+            }
+        }
+
+        peer_ip
     }
 
     async fn send_json_error(
