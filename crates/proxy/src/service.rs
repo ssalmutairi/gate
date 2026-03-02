@@ -6,14 +6,19 @@ use crate::router::GatewayConfig;
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use dashmap::DashMap;
+use once_cell::sync::Lazy;
 use pingora::prelude::*;
 use pingora::proxy::{ProxyHttp, Session};
+use pingora_cache::MemCache;
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use std::sync::atomic::{AtomicUsize, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use uuid::Uuid;
+
+/// In-memory cache backend for response caching.
+static CACHE_BACKEND: Lazy<MemCache> = Lazy::new(MemCache::new);
 
 /// Maximum number of unique rate limiter keys before eviction is forced.
 const RATE_LIMITER_MAX_KEYS: usize = 100_000;
@@ -86,6 +91,8 @@ pub struct GatewayCtx {
     pub retries_remaining: i32,
     /// Total retries configured for this route.
     pub retries_total: i32,
+    /// Cache TTL for this route (seconds), if caching is enabled.
+    pub cache_ttl_secs: Option<i32>,
 }
 
 /// Pack a (window_id, count) pair into a single u64 for atomic CAS.
@@ -225,6 +232,12 @@ impl GatewayProxy {
 impl ProxyHttp for GatewayProxy {
     type CTX = GatewayCtx;
 
+    fn init_downstream_modules(&self, modules: &mut pingora::modules::http::HttpModules) {
+        modules.add_module(
+            pingora::modules::http::compression::ResponseCompressionBuilder::enable(6),
+        );
+    }
+
     fn new_ctx(&self) -> Self::CTX {
         GatewayCtx {
             request_start: Instant::now(),
@@ -240,6 +253,7 @@ impl ProxyHttp for GatewayProxy {
             timeout_ms: None,
             retries_remaining: 0,
             retries_total: 0,
+            cache_ttl_secs: None,
         }
     }
 
@@ -254,8 +268,16 @@ impl ProxyHttp for GatewayProxy {
 
         let config = self.config.load();
 
+        // Extract Host header (strip port if present)
+        let host = session
+            .req_header()
+            .headers
+            .get("host")
+            .and_then(|v| v.to_str().ok())
+            .map(|h| h.split(':').next().unwrap_or(h).to_string());
+
         // --- 1. Route matching ---
-        let route = match config.match_route(&path, method) {
+        let route = match config.match_route(&path, method, host.as_deref()) {
             Some(r) => r,
             None => {
                 let _ = session.respond_error(404).await;
@@ -272,6 +294,7 @@ impl ProxyHttp for GatewayProxy {
         ctx.timeout_ms = route.timeout_ms;
         ctx.retries_remaining = route.retries.min(3);
         ctx.retries_total = route.retries.min(3);
+        ctx.cache_ttl_secs = route.cache_ttl_secs;
 
         // --- 1b. Request size limiting ---
         if let Some(max_bytes) = route.max_body_bytes {
@@ -289,6 +312,35 @@ impl ProxyHttp for GatewayProxy {
                 // This prevents bypassing size limits via chunked encoding.
                 // Allow a generous threshold: only block if max_body_bytes is explicitly small.
                 tracing::debug!(max_bytes, "Chunked request with body size limit — will be enforced by upstream");
+            }
+        }
+
+        // --- 1c. IP allowlist/denylist ---
+        if let Some(rules) = config.get_ip_rules(&route_id) {
+            let client_ip = self.get_client_ip(session);
+            if let Ok(client_addr) = client_ip.parse::<std::net::IpAddr>() {
+                let has_allow_rules = rules.iter().any(|r| r.action == "allow");
+                let mut denied = false;
+                let mut allowed = !has_allow_rules; // if no allow rules, default allow
+
+                for rule in rules {
+                    if let Ok(network) = rule.cidr.parse::<ipnet::IpNet>() {
+                        if network.contains(&client_addr) {
+                            if rule.action == "deny" {
+                                denied = true;
+                                break;
+                            } else if rule.action == "allow" {
+                                allowed = true;
+                            }
+                        }
+                    }
+                }
+
+                if denied || !allowed {
+                    return self
+                        .send_json_error(session, 403, "IP address not allowed", "IP_DENIED")
+                        .await;
+                }
             }
         }
 
@@ -696,6 +748,47 @@ impl ProxyHttp for GatewayProxy {
         Ok(())
     }
 
+    fn request_cache_filter(&self, session: &mut Session, ctx: &mut Self::CTX) -> Result<()> {
+        // Only cache GET requests with a positive TTL
+        if let Some(ttl) = ctx.cache_ttl_secs {
+            if ttl > 0 && session.req_header().method == http::Method::GET {
+                session.cache.enable(
+                    &*CACHE_BACKEND,
+                    None, // no eviction manager
+                    None, // no cacheable predictor
+                    None, // no cache lock
+                    None, // no option overrides
+                );
+            }
+        }
+        Ok(())
+    }
+
+    fn response_cache_filter(
+        &self,
+        _session: &Session,
+        resp: &pingora::http::ResponseHeader,
+        ctx: &mut Self::CTX,
+    ) -> Result<pingora_cache::RespCacheable> {
+        if let Some(ttl) = ctx.cache_ttl_secs {
+            if ttl > 0 && resp.status == http::StatusCode::OK {
+                let now = std::time::SystemTime::now();
+                let fresh_until = now + std::time::Duration::from_secs(ttl as u64);
+                let meta = pingora_cache::CacheMeta::new(
+                    fresh_until,
+                    now,
+                    0, // stale_while_revalidate_sec
+                    0, // stale_if_error_sec
+                    resp.clone(),
+                );
+                return Ok(pingora_cache::RespCacheable::Cacheable(meta));
+            }
+        }
+        Ok(pingora_cache::RespCacheable::Uncacheable(
+            pingora_cache::NoCacheReason::Custom("not configured"),
+        ))
+    }
+
     async fn logging(
         &self,
         session: &mut Session,
@@ -765,7 +858,7 @@ mod tests {
         let pool = PgPoolOptions::new()
             .connect_lazy("postgres://fake:fake@localhost:1/fake")
             .unwrap();
-        let config = GatewayConfig::new(vec![], vec![], vec![], vec![], vec![], vec![]);
+        let config = GatewayConfig::new(vec![], vec![], vec![], vec![], vec![], vec![], vec![]);
         let (tx, _rx) = tokio::sync::mpsc::channel(100);
         GatewayProxy::new(
             Arc::new(pool),
@@ -859,6 +952,7 @@ mod tests {
         assert!(ctx.timeout_ms.is_none());
         assert_eq!(ctx.retries_remaining, 0);
         assert_eq!(ctx.retries_total, 0);
+        assert!(ctx.cache_ttl_secs.is_none());
     }
 
     #[tokio::test]
@@ -953,7 +1047,7 @@ mod tests {
         let pool = PgPoolOptions::new()
             .connect_lazy("postgres://fake:fake@localhost:1/fake")
             .unwrap();
-        let config = GatewayConfig::new(vec![], vec![], vec![], vec![], vec![], vec![]);
+        let config = GatewayConfig::new(vec![], vec![], vec![], vec![], vec![], vec![], vec![]);
         let (tx, _rx) = tokio::sync::mpsc::channel(100);
         let proxy = GatewayProxy::new(
             Arc::new(pool),

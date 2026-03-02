@@ -23,6 +23,8 @@ pub async fn run_migrations(pool: &PgPool) {
         include_str!("../../../migrations/009_add_spec_content.sql"),
         include_str!("../../../migrations/010_add_route_auth_skip.sql"),
         include_str!("../../../migrations/011_add_resilience.sql"),
+        include_str!("../../../migrations/012_add_route_host_and_cache.sql"),
+        include_str!("../../../migrations/013_create_ip_rules.sql"),
     ];
 
     for (i, sql) in migrations.iter().enumerate() {

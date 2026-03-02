@@ -3,7 +3,7 @@
 ## 1) Traffic Management
 
 - [x] Request routing (path) — longest-prefix matching in `router.rs`
-- [ ] Request routing (host / headers / query) — only path + method filtering implemented
+- [x] Request routing (host / headers / query) — path + method + host-based routing (exact + wildcard)
 - [x] Load balancing (round-robin, least connections, weighted) — all 3 in `lb.rs`
 - [ ] Service discovery integration — static DB-driven targets only
 - [x] Health checks (active) — configurable interval + thresholds in `health.rs`
@@ -21,7 +21,7 @@
 - [ ] JWT validation
 - [ ] Basic / Digest authentication
 - [ ] Mutual TLS (mTLS)
-- [ ] IP allowlist / denylist
+- [x] IP allowlist / denylist — per-route CIDR-based allow/deny rules with admin CRUD
 - [ ] Role-Based Access Control (RBAC)
 - [x] Rate limiting / throttling — fixed-window 1s counter (lock-free DashMap + atomic CAS), per-route, by IP or API key
 - [ ] Quotas / usage limits — per-minute/hour fields exist in DB but not enforced
@@ -114,10 +114,10 @@
 
 ## 12) Caching & Performance
 
-- [ ] Response caching
+- [x] Response caching — per-route TTL-based in-memory cache via Pingora cache API
 - [ ] Cache invalidation rules
 - [ ] Distributed cache support
-- [ ] Compression (gzip / brotli)
+- [x] Compression (gzip / brotli / zstd) — Pingora ResponseCompression module (level 6)
 - [x] Connection pooling — SQLx DB pooling + Pingora built-in HTTP pooling
 - [x] Keep-alive optimization — Pingora handles this transparently
 
@@ -144,8 +144,8 @@
 
 | Category | Done | Partial | Todo |
 |----------|:----:|:-------:|:----:|
-| 1) Traffic Management | 5 | 0 | 6 |
-| 2) Security & Access Control | 2 | 0 | 9 |
+| 1) Traffic Management | 6 | 0 | 5 |
+| 2) Security & Access Control | 3 | 0 | 8 |
 | 3) Policy & Traffic Shaping | 5 | 0 | 2 |
 | 4) Transformation & Mediation | 3 | 0 | 4 |
 | 5) Observability & Monitoring | 4 | 0 | 2 |
@@ -155,10 +155,10 @@
 | 9) Kubernetes & Cloud Native | 0 | 0 | 6 |
 | 10) API Management | 3 | 0 | 3 |
 | 11) Protocol Support | 2 | 0 | 5 |
-| 12) Caching & Performance | 2 | 0 | 4 |
+| 12) Caching & Performance | 4 | 0 | 2 |
 | 13) Developer Experience | 1 | 0 | 4 |
 | 14) AI / LLM Gateway | 0 | 0 | 6 |
-| **TOTAL** | **29** | **0** | **62** |
+| **TOTAL** | **33** | **0** | **58** |
 
 ### Core Strengths
 - Path-based routing with longest-prefix matching
@@ -177,4 +177,8 @@
 - Docker Compose deployment with full observability stack
 - HTTP/1.1 + HTTP/2 upstream proxying (per-target TLS with ALPN)
 - URL rewriting (strip prefix + upstream path prefix)
+- Host-based routing (exact + wildcard `*.example.com`)
+- IP allowlist/denylist (per-route CIDR rules)
+- Response compression (gzip/brotli/zstd via Pingora)
+- Response caching (per-route TTL, in-memory Pingora cache)
 - CI/CD with GitHub Actions multi-platform release builds

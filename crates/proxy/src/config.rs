@@ -1,6 +1,6 @@
 use crate::router::GatewayConfig;
 use arc_swap::ArcSwap;
-use shared::models::{ApiKey, HeaderRule, RateLimit, Route, Target, Upstream};
+use shared::models::{ApiKey, HeaderRule, IpRule, RateLimit, Route, Target, Upstream};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -38,6 +38,11 @@ pub async fn load_config(pool: &PgPool) -> GatewayConfig {
         .await
         .unwrap_or_default();
 
+    let ip_rules: Vec<IpRule> = sqlx::query_as("SELECT * FROM ip_rules")
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default();
+
     tracing::info!(
         routes = routes.len(),
         upstreams = upstreams.len(),
@@ -45,10 +50,11 @@ pub async fn load_config(pool: &PgPool) -> GatewayConfig {
         api_keys = api_keys.len(),
         rate_limits = rate_limits.len(),
         header_rules = header_rules.len(),
+        ip_rules = ip_rules.len(),
         "Config loaded from database"
     );
 
-    GatewayConfig::new(routes, upstreams, targets, api_keys, rate_limits, header_rules)
+    GatewayConfig::new(routes, upstreams, targets, api_keys, rate_limits, header_rules, ip_rules)
 }
 
 #[cfg(test)]
@@ -65,6 +71,8 @@ async fn run_test_migrations(pool: &PgPool) {
         include_str!("../../../migrations/009_add_spec_content.sql"),
         include_str!("../../../migrations/010_add_route_auth_skip.sql"),
         include_str!("../../../migrations/011_add_resilience.sql"),
+        include_str!("../../../migrations/012_add_route_host_and_cache.sql"),
+        include_str!("../../../migrations/013_create_ip_rules.sql"),
     ];
     for sql in &migrations {
         for statement in sql.split(';') {
@@ -97,7 +105,7 @@ async fn setup_test_pool() -> PgPool {
     run_test_migrations(&pool).await;
     // Truncate relevant tables
     sqlx::query(
-        "TRUNCATE TABLE request_logs, header_rules, rate_limits, api_keys, services, routes, targets, upstreams CASCADE"
+        "TRUNCATE TABLE ip_rules, request_logs, header_rules, rate_limits, api_keys, services, routes, targets, upstreams CASCADE"
     )
     .execute(&pool)
     .await
@@ -144,6 +152,8 @@ pub fn spawn_config_reloader(
                             SELECT MAX(updated_at) FROM rate_limits
                             UNION ALL
                             SELECT MAX(updated_at) FROM header_rules
+                            UNION ALL
+                            SELECT MAX(updated_at) FROM ip_rules
                         ) sub"#,
                     )
                     .fetch_optional(&pool)

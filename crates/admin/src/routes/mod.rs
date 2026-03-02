@@ -1,6 +1,7 @@
 pub mod api_keys;
 pub mod header_rules;
 pub mod health;
+pub mod ip_rules;
 pub mod rate_limits;
 pub mod routes;
 pub mod services;

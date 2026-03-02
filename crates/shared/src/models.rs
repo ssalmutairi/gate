@@ -41,8 +41,21 @@ pub struct Route {
     pub max_body_bytes: Option<i64>,
     pub timeout_ms: Option<i32>,
     pub retries: i32,
+    pub host_pattern: Option<String>,
+    pub cache_ttl_secs: Option<i32>,
     pub auth_skip: bool,
     pub active: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct IpRule {
+    pub id: Uuid,
+    pub route_id: Uuid,
+    pub cidr: String,
+    pub action: String,
+    pub description: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

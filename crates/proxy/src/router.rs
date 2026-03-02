@@ -1,4 +1,4 @@
-use shared::models::{ApiKey, HeaderRule, RateLimit, Route, Target, Upstream};
+use shared::models::{ApiKey, HeaderRule, IpRule, RateLimit, Route, Target, Upstream};
 use std::collections::HashMap;
 use subtle::ConstantTimeEq;
 use uuid::Uuid;
@@ -18,6 +18,8 @@ pub struct GatewayConfig {
     pub rate_limits: HashMap<Uuid, RateLimit>,
     /// Header modification rules keyed by route ID.
     pub header_rules: HashMap<Uuid, Vec<HeaderRule>>,
+    /// IP allowlist/denylist rules keyed by route ID.
+    pub ip_rules: HashMap<Uuid, Vec<IpRule>>,
 }
 
 impl GatewayConfig {
@@ -28,6 +30,7 @@ impl GatewayConfig {
         api_keys: Vec<ApiKey>,
         rate_limits: Vec<RateLimit>,
         header_rules: Vec<HeaderRule>,
+        ip_rules: Vec<IpRule>,
     ) -> Self {
         // Sort routes: longest path_prefix first for most-specific match
         routes.sort_by(|a, b| b.path_prefix.len().cmp(&a.path_prefix.len()));
@@ -48,6 +51,11 @@ impl GatewayConfig {
             header_rules_map.entry(rule.route_id).or_default().push(rule);
         }
 
+        let mut ip_rules_map: HashMap<Uuid, Vec<IpRule>> = HashMap::new();
+        for rule in ip_rules {
+            ip_rules_map.entry(rule.route_id).or_default().push(rule);
+        }
+
         Self {
             routes,
             upstreams: upstreams_map,
@@ -55,14 +63,27 @@ impl GatewayConfig {
             api_keys,
             rate_limits: rate_limits_map,
             header_rules: header_rules_map,
+            ip_rules: ip_rules_map,
         }
     }
 
-    /// Match an incoming request path and method against configured routes.
-    pub fn match_route(&self, path: &str, method: &str) -> Option<&Route> {
+    /// Match an incoming request path, method, and optional host against configured routes.
+    pub fn match_route(&self, path: &str, method: &str, host: Option<&str>) -> Option<&Route> {
         for route in &self.routes {
             if !route.active {
                 continue;
+            }
+
+            // Check host pattern if the route has one
+            if let Some(ref pattern) = route.host_pattern {
+                match host {
+                    Some(h) => {
+                        if !host_matches(h, pattern) {
+                            continue;
+                        }
+                    }
+                    None => continue, // Route requires a host but none provided
+                }
             }
 
             if !path.starts_with(&route.path_prefix) {
@@ -150,12 +171,30 @@ impl GatewayConfig {
         self.header_rules.get(route_id)
     }
 
+    /// Get IP rules for a route.
+    pub fn get_ip_rules(&self, route_id: &Uuid) -> Option<&Vec<IpRule>> {
+        self.ip_rules.get(route_id)
+    }
+
     /// Get circuit breaker config for an upstream: (threshold, duration_secs).
     pub fn get_upstream_cb_config(&self, upstream_id: &Uuid) -> Option<(i32, i32)> {
         self.upstreams.get(upstream_id).and_then(|u| {
             u.circuit_breaker_threshold
                 .map(|t| (t, u.circuit_breaker_duration_secs))
         })
+    }
+}
+
+/// Check if a host matches a pattern. Supports exact match and wildcard `*.example.com`.
+fn host_matches(host: &str, pattern: &str) -> bool {
+    let host = host.to_ascii_lowercase();
+    let pattern = pattern.to_ascii_lowercase();
+
+    if let Some(suffix) = pattern.strip_prefix("*.") {
+        // Wildcard: host must end with .suffix and have at least one char before
+        host.ends_with(&format!(".{}", suffix)) && host.len() > suffix.len() + 1
+    } else {
+        host == pattern
     }
 }
 
@@ -171,7 +210,7 @@ mod tests {
     use crate::test_helpers::*;
 
     fn empty_config() -> GatewayConfig {
-        GatewayConfig::new(vec![], vec![], vec![], vec![], vec![], vec![])
+        GatewayConfig::new(vec![], vec![], vec![], vec![], vec![], vec![], vec![])
     }
 
     // --- match_route ---
@@ -180,8 +219,8 @@ mod tests {
     fn match_route_exact_prefix() {
         let u = make_upstream();
         let r = make_route(u.id, "/api");
-        let cfg = GatewayConfig::new(vec![r.clone()], vec![u], vec![], vec![], vec![], vec![]);
-        let matched = cfg.match_route("/api", "GET");
+        let cfg = GatewayConfig::new(vec![r.clone()], vec![u], vec![], vec![], vec![], vec![], vec![]);
+        let matched = cfg.match_route("/api", "GET", None);
         assert!(matched.is_some());
         assert_eq!(matched.unwrap().id, r.id);
     }
@@ -190,8 +229,8 @@ mod tests {
     fn match_route_with_subpath() {
         let u = make_upstream();
         let r = make_route(u.id, "/api");
-        let cfg = GatewayConfig::new(vec![r.clone()], vec![u], vec![], vec![], vec![], vec![]);
-        let matched = cfg.match_route("/api/users", "GET");
+        let cfg = GatewayConfig::new(vec![r.clone()], vec![u], vec![], vec![], vec![], vec![], vec![]);
+        let matched = cfg.match_route("/api/users", "GET", None);
         assert!(matched.is_some());
         assert_eq!(matched.unwrap().id, r.id);
     }
@@ -208,8 +247,9 @@ mod tests {
             vec![],
             vec![],
             vec![],
+            vec![],
         );
-        let matched = cfg.match_route("/api/users/123", "GET");
+        let matched = cfg.match_route("/api/users/123", "GET", None);
         assert!(matched.is_some());
         assert_eq!(matched.unwrap().id, r2.id);
     }
@@ -218,9 +258,9 @@ mod tests {
     fn match_route_segment_boundary() {
         let u = make_upstream();
         let r = make_route(u.id, "/api");
-        let cfg = GatewayConfig::new(vec![r], vec![u], vec![], vec![], vec![], vec![]);
+        let cfg = GatewayConfig::new(vec![r], vec![u], vec![], vec![], vec![], vec![], vec![]);
         // "/api-v2" should NOT match "/api" — not a segment boundary
-        assert!(cfg.match_route("/api-v2", "GET").is_none());
+        assert!(cfg.match_route("/api-v2", "GET", None).is_none());
     }
 
     #[test]
@@ -228,8 +268,8 @@ mod tests {
         let u = make_upstream();
         let mut r = make_route(u.id, "/api");
         r.active = false;
-        let cfg = GatewayConfig::new(vec![r], vec![u], vec![], vec![], vec![], vec![]);
-        assert!(cfg.match_route("/api", "GET").is_none());
+        let cfg = GatewayConfig::new(vec![r], vec![u], vec![], vec![], vec![], vec![], vec![]);
+        assert!(cfg.match_route("/api", "GET", None).is_none());
     }
 
     #[test]
@@ -237,10 +277,10 @@ mod tests {
         let u = make_upstream();
         let mut r = make_route(u.id, "/api");
         r.methods = Some(vec!["GET".to_string(), "POST".to_string()]);
-        let cfg = GatewayConfig::new(vec![r], vec![u], vec![], vec![], vec![], vec![]);
-        assert!(cfg.match_route("/api", "GET").is_some());
-        assert!(cfg.match_route("/api", "POST").is_some());
-        assert!(cfg.match_route("/api", "DELETE").is_none());
+        let cfg = GatewayConfig::new(vec![r], vec![u], vec![], vec![], vec![], vec![], vec![]);
+        assert!(cfg.match_route("/api", "GET", None).is_some());
+        assert!(cfg.match_route("/api", "POST", None).is_some());
+        assert!(cfg.match_route("/api", "DELETE", None).is_none());
     }
 
     #[test]
@@ -248,26 +288,26 @@ mod tests {
         let u = make_upstream();
         let mut r = make_route(u.id, "/api");
         r.methods = Some(vec!["GET".to_string()]);
-        let cfg = GatewayConfig::new(vec![r], vec![u], vec![], vec![], vec![], vec![]);
-        assert!(cfg.match_route("/api", "get").is_some());
-        assert!(cfg.match_route("/api", "Get").is_some());
+        let cfg = GatewayConfig::new(vec![r], vec![u], vec![], vec![], vec![], vec![], vec![]);
+        assert!(cfg.match_route("/api", "get", None).is_some());
+        assert!(cfg.match_route("/api", "Get", None).is_some());
     }
 
     #[test]
     fn match_route_no_match() {
         let u = make_upstream();
         let r = make_route(u.id, "/api");
-        let cfg = GatewayConfig::new(vec![r], vec![u], vec![], vec![], vec![], vec![]);
-        assert!(cfg.match_route("/other", "GET").is_none());
+        let cfg = GatewayConfig::new(vec![r], vec![u], vec![], vec![], vec![], vec![], vec![]);
+        assert!(cfg.match_route("/other", "GET", None).is_none());
     }
 
     #[test]
     fn match_route_root_exact() {
         let u = make_upstream();
         let r = make_route(u.id, "/");
-        let cfg = GatewayConfig::new(vec![r.clone()], vec![u], vec![], vec![], vec![], vec![]);
+        let cfg = GatewayConfig::new(vec![r.clone()], vec![u], vec![], vec![], vec![], vec![], vec![]);
         // Root route "/" matches "/" exactly
-        let matched = cfg.match_route("/", "GET");
+        let matched = cfg.match_route("/", "GET", None);
         assert!(matched.is_some());
         assert_eq!(matched.unwrap().id, r.id);
     }
@@ -277,8 +317,42 @@ mod tests {
         let u = make_upstream();
         let mut r = make_route(u.id, "/api");
         r.methods = Some(vec![]);
-        let cfg = GatewayConfig::new(vec![r], vec![u], vec![], vec![], vec![], vec![]);
-        assert!(cfg.match_route("/api", "DELETE").is_some());
+        let cfg = GatewayConfig::new(vec![r], vec![u], vec![], vec![], vec![], vec![], vec![]);
+        assert!(cfg.match_route("/api", "DELETE", None).is_some());
+    }
+
+    // --- host-based routing ---
+
+    #[test]
+    fn match_route_host_exact() {
+        let u = make_upstream();
+        let mut r = make_route(u.id, "/api");
+        r.host_pattern = Some("example.com".to_string());
+        let cfg = GatewayConfig::new(vec![r.clone()], vec![u], vec![], vec![], vec![], vec![], vec![]);
+        assert!(cfg.match_route("/api", "GET", Some("example.com")).is_some());
+        assert!(cfg.match_route("/api", "GET", Some("other.com")).is_none());
+        assert!(cfg.match_route("/api", "GET", None).is_none());
+    }
+
+    #[test]
+    fn match_route_host_wildcard() {
+        let u = make_upstream();
+        let mut r = make_route(u.id, "/api");
+        r.host_pattern = Some("*.example.com".to_string());
+        let cfg = GatewayConfig::new(vec![r.clone()], vec![u], vec![], vec![], vec![], vec![], vec![]);
+        assert!(cfg.match_route("/api", "GET", Some("app.example.com")).is_some());
+        assert!(cfg.match_route("/api", "GET", Some("example.com")).is_none());
+        assert!(cfg.match_route("/api", "GET", Some("other.com")).is_none());
+    }
+
+    #[test]
+    fn match_route_host_no_pattern() {
+        let u = make_upstream();
+        let r = make_route(u.id, "/api"); // no host_pattern
+        let cfg = GatewayConfig::new(vec![r.clone()], vec![u], vec![], vec![], vec![], vec![], vec![]);
+        // Routes without host_pattern match any host
+        assert!(cfg.match_route("/api", "GET", Some("anything.com")).is_some());
+        assert!(cfg.match_route("/api", "GET", None).is_some());
     }
 
     // --- healthy_targets ---
@@ -290,7 +364,7 @@ mod tests {
         t1.healthy = true;
         let mut t2 = make_target(u.id);
         t2.healthy = false;
-        let cfg = GatewayConfig::new(vec![], vec![u.clone()], vec![t1.clone(), t2], vec![], vec![], vec![]);
+        let cfg = GatewayConfig::new(vec![], vec![u.clone()], vec![t1.clone(), t2], vec![], vec![], vec![], vec![]);
         let healthy = cfg.healthy_targets(&u.id);
         assert_eq!(healthy.len(), 1);
         assert_eq!(healthy[0].id, t1.id);
@@ -310,7 +384,7 @@ mod tests {
         t1.healthy = false;
         let mut t2 = make_target(u.id);
         t2.healthy = false;
-        let cfg = GatewayConfig::new(vec![], vec![u.clone()], vec![t1, t2], vec![], vec![], vec![]);
+        let cfg = GatewayConfig::new(vec![], vec![u.clone()], vec![t1, t2], vec![], vec![], vec![], vec![]);
         assert!(cfg.healthy_targets(&u.id).is_empty());
     }
 
@@ -320,7 +394,7 @@ mod tests {
     fn route_requires_auth_global_key() {
         let route_id = Uuid::new_v4();
         let key = make_api_key(None, "hash123"); // global key
-        let cfg = GatewayConfig::new(vec![], vec![], vec![], vec![key], vec![], vec![]);
+        let cfg = GatewayConfig::new(vec![], vec![], vec![], vec![key], vec![], vec![], vec![]);
         assert!(cfg.route_requires_auth(&route_id));
     }
 
@@ -328,7 +402,7 @@ mod tests {
     fn route_requires_auth_scoped_key() {
         let route_id = Uuid::new_v4();
         let key = make_api_key(Some(route_id), "hash123");
-        let cfg = GatewayConfig::new(vec![], vec![], vec![], vec![key], vec![], vec![]);
+        let cfg = GatewayConfig::new(vec![], vec![], vec![], vec![key], vec![], vec![], vec![]);
         assert!(cfg.route_requires_auth(&route_id));
     }
 
@@ -344,7 +418,7 @@ mod tests {
     fn validate_api_key_valid() {
         let route_id = Uuid::new_v4();
         let key = make_api_key(Some(route_id), "correcthash");
-        let cfg = GatewayConfig::new(vec![], vec![], vec![], vec![key], vec![], vec![]);
+        let cfg = GatewayConfig::new(vec![], vec![], vec![], vec![key], vec![], vec![], vec![]);
         assert!(cfg.validate_api_key(&route_id, "correcthash").is_ok());
     }
 
@@ -352,7 +426,7 @@ mod tests {
     fn validate_api_key_wrong_hash() {
         let route_id = Uuid::new_v4();
         let key = make_api_key(Some(route_id), "correcthash");
-        let cfg = GatewayConfig::new(vec![], vec![], vec![], vec![key], vec![], vec![]);
+        let cfg = GatewayConfig::new(vec![], vec![], vec![], vec![key], vec![], vec![], vec![]);
         assert_eq!(
             cfg.validate_api_key(&route_id, "wronghash"),
             Err("Invalid API key")
@@ -364,7 +438,7 @@ mod tests {
         let route_id = Uuid::new_v4();
         let mut key = make_api_key(Some(route_id), "hash123");
         key.active = false;
-        let cfg = GatewayConfig::new(vec![], vec![], vec![], vec![key], vec![], vec![]);
+        let cfg = GatewayConfig::new(vec![], vec![], vec![], vec![key], vec![], vec![], vec![]);
         assert_eq!(
             cfg.validate_api_key(&route_id, "hash123"),
             Err("API key has been revoked")
@@ -376,7 +450,7 @@ mod tests {
         let route_id = Uuid::new_v4();
         let mut key = make_api_key(Some(route_id), "hash123");
         key.expires_at = Some(chrono::Utc::now() - chrono::Duration::hours(1));
-        let cfg = GatewayConfig::new(vec![], vec![], vec![], vec![key], vec![], vec![]);
+        let cfg = GatewayConfig::new(vec![], vec![], vec![], vec![key], vec![], vec![], vec![]);
         assert_eq!(
             cfg.validate_api_key(&route_id, "hash123"),
             Err("API key has expired")
@@ -388,7 +462,7 @@ mod tests {
         let route_a = Uuid::new_v4();
         let route_b = Uuid::new_v4();
         let key = make_api_key(Some(route_a), "hash123");
-        let cfg = GatewayConfig::new(vec![], vec![], vec![], vec![key], vec![], vec![]);
+        let cfg = GatewayConfig::new(vec![], vec![], vec![], vec![key], vec![], vec![], vec![]);
         assert_eq!(
             cfg.validate_api_key(&route_b, "hash123"),
             Err("Invalid API key")
@@ -401,7 +475,7 @@ mod tests {
     fn get_rate_limit_found() {
         let route_id = Uuid::new_v4();
         let rl = make_rate_limit(route_id, 100);
-        let cfg = GatewayConfig::new(vec![], vec![], vec![], vec![], vec![rl.clone()], vec![]);
+        let cfg = GatewayConfig::new(vec![], vec![], vec![], vec![], vec![rl.clone()], vec![], vec![]);
         let result = cfg.get_rate_limit(&route_id);
         assert!(result.is_some());
         assert_eq!(result.unwrap().requests_per_second, 100);
@@ -419,7 +493,7 @@ mod tests {
     fn get_header_rules_found() {
         let route_id = Uuid::new_v4();
         let rule = make_header_rule(route_id, "set", "X-Custom");
-        let cfg = GatewayConfig::new(vec![], vec![], vec![], vec![], vec![], vec![rule]);
+        let cfg = GatewayConfig::new(vec![], vec![], vec![], vec![], vec![], vec![rule], vec![]);
         let result = cfg.get_header_rules(&route_id);
         assert!(result.is_some());
         assert_eq!(result.unwrap().len(), 1);
@@ -437,7 +511,7 @@ mod tests {
     fn validate_api_key_different_length_hash_rejected() {
         let route_id = Uuid::new_v4();
         let key = make_api_key(Some(route_id), "abcdef1234567890abcdef1234567890");
-        let cfg = GatewayConfig::new(vec![], vec![], vec![], vec![key], vec![], vec![]);
+        let cfg = GatewayConfig::new(vec![], vec![], vec![], vec![key], vec![], vec![], vec![]);
         // Short hash triggers constant_time_eq different-length fast path
         assert_eq!(
             cfg.validate_api_key(&route_id, "short"),
@@ -457,6 +531,7 @@ mod tests {
         let cfg = GatewayConfig::new(
             vec![r_short.clone(), r_long.clone(), r_mid.clone()],
             vec![u],
+            vec![],
             vec![],
             vec![],
             vec![],
@@ -482,6 +557,7 @@ mod tests {
             vec![],
             vec![],
             vec![],
+            vec![],
         );
         assert_eq!(cfg.targets.get(&u1.id).unwrap().len(), 2);
         assert_eq!(cfg.targets.get(&u2.id).unwrap().len(), 1);
@@ -491,7 +567,7 @@ mod tests {
     fn validate_api_key_global_key_matches_any_route() {
         let route_id = Uuid::new_v4();
         let key = make_api_key(None, "globalhash"); // global key (route_id = None)
-        let cfg = GatewayConfig::new(vec![], vec![], vec![], vec![key], vec![], vec![]);
+        let cfg = GatewayConfig::new(vec![], vec![], vec![], vec![key], vec![], vec![], vec![]);
         assert!(cfg.validate_api_key(&route_id, "globalhash").is_ok());
     }
 
@@ -500,7 +576,7 @@ mod tests {
         let route_id = Uuid::new_v4();
         let mut key = make_api_key(Some(route_id), "hash123");
         key.expires_at = Some(chrono::Utc::now() + chrono::Duration::hours(1));
-        let cfg = GatewayConfig::new(vec![], vec![], vec![], vec![key], vec![], vec![]);
+        let cfg = GatewayConfig::new(vec![], vec![], vec![], vec![key], vec![], vec![], vec![]);
         assert!(cfg.validate_api_key(&route_id, "hash123").is_ok());
     }
 
@@ -510,7 +586,7 @@ mod tests {
         let route_b = Uuid::new_v4();
         // Key scoped to route_a only
         let key = make_api_key(Some(route_a), "hash");
-        let cfg = GatewayConfig::new(vec![], vec![], vec![], vec![key], vec![], vec![]);
+        let cfg = GatewayConfig::new(vec![], vec![], vec![], vec![key], vec![], vec![], vec![]);
         // route_b should NOT require auth (no global keys, no keys scoped to route_b)
         assert!(!cfg.route_requires_auth(&route_b));
     }

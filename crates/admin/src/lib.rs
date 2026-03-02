@@ -98,6 +98,16 @@ pub fn build_router(pool: PgPool) -> Router {
             "/admin/header-rules/:id",
             delete(routes::header_rules::delete_header_rule),
         )
+        // IP Rules
+        .route(
+            "/admin/routes/:route_id/ip-rules",
+            get(routes::ip_rules::list_ip_rules)
+                .post(routes::ip_rules::create_ip_rule),
+        )
+        .route(
+            "/admin/ip-rules/:id",
+            delete(routes::ip_rules::delete_ip_rule),
+        )
         // Services
         .route(
             "/admin/services/import",

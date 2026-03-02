@@ -21,6 +21,8 @@ pub struct CreateRoute {
     pub auth_skip: Option<bool>,
     pub timeout_ms: Option<i32>,
     pub retries: Option<i32>,
+    pub host_pattern: Option<String>,
+    pub cache_ttl_secs: Option<i32>,
 }
 
 #[derive(Deserialize)]
@@ -36,6 +38,8 @@ pub struct UpdateRoute {
     pub active: Option<bool>,
     pub timeout_ms: Option<Option<i32>>,
     pub retries: Option<i32>,
+    pub host_pattern: Option<Option<String>>,
+    pub cache_ttl_secs: Option<Option<i32>>,
 }
 
 #[derive(Serialize)]
@@ -52,6 +56,8 @@ pub struct RouteResponse {
     pub max_body_bytes: Option<i64>,
     pub timeout_ms: Option<i32>,
     pub retries: i32,
+    pub host_pattern: Option<String>,
+    pub cache_ttl_secs: Option<i32>,
     pub auth_skip: bool,
     pub active: bool,
     pub created_at: chrono::DateTime<chrono::Utc>,
@@ -82,6 +88,8 @@ struct RouteWithUpstream {
     max_body_bytes: Option<i64>,
     timeout_ms: Option<i32>,
     retries: i32,
+    host_pattern: Option<String>,
+    cache_ttl_secs: Option<i32>,
     auth_skip: bool,
     active: bool,
     created_at: chrono::DateTime<chrono::Utc>,
@@ -103,6 +111,8 @@ impl From<RouteWithUpstream> for RouteResponse {
             max_body_bytes: r.max_body_bytes,
             timeout_ms: r.timeout_ms,
             retries: r.retries,
+            host_pattern: r.host_pattern,
+            cache_ttl_secs: r.cache_ttl_secs,
             auth_skip: r.auth_skip,
             active: r.active,
             created_at: r.created_at,
@@ -129,7 +139,7 @@ pub async fn list_routes(
         r#"SELECT r.id, r.name, r.path_prefix, r.methods, r.upstream_id,
                   u.name as upstream_name, r.strip_prefix,
                   r.upstream_path_prefix, r.service_id, r.max_body_bytes,
-                  r.timeout_ms, r.retries,
+                  r.timeout_ms, r.retries, r.host_pattern, r.cache_ttl_secs,
                   r.auth_skip, r.active, r.created_at, r.updated_at
            FROM routes r
            LEFT JOIN upstreams u ON u.id = r.upstream_id
@@ -175,7 +185,7 @@ pub async fn create_route(
     }
 
     let route: shared::models::Route = sqlx::query_as(
-        "INSERT INTO routes (name, path_prefix, methods, upstream_id, strip_prefix, upstream_path_prefix, max_body_bytes, auth_skip, timeout_ms, retries) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *",
+        "INSERT INTO routes (name, path_prefix, methods, upstream_id, strip_prefix, upstream_path_prefix, max_body_bytes, auth_skip, timeout_ms, retries, host_pattern, cache_ttl_secs) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *",
     )
     .bind(body.name.trim())
     .bind(&body.path_prefix)
@@ -187,6 +197,8 @@ pub async fn create_route(
     .bind(auth_skip)
     .bind(body.timeout_ms)
     .bind(retries)
+    .bind(&body.host_pattern)
+    .bind(body.cache_ttl_secs)
     .fetch_one(&pool)
     .await?;
 
@@ -212,6 +224,8 @@ pub async fn create_route(
             max_body_bytes: route.max_body_bytes,
             timeout_ms: route.timeout_ms,
             retries: route.retries,
+            host_pattern: route.host_pattern,
+            cache_ttl_secs: route.cache_ttl_secs,
             auth_skip: route.auth_skip,
             active: route.active,
             created_at: route.created_at,
@@ -228,7 +242,7 @@ pub async fn get_route(
         r#"SELECT r.id, r.name, r.path_prefix, r.methods, r.upstream_id,
                   u.name as upstream_name, r.strip_prefix,
                   r.upstream_path_prefix, r.service_id, r.max_body_bytes,
-                  r.timeout_ms, r.retries,
+                  r.timeout_ms, r.retries, r.host_pattern, r.cache_ttl_secs,
                   r.auth_skip, r.active, r.created_at, r.updated_at
            FROM routes r
            LEFT JOIN upstreams u ON u.id = r.upstream_id
@@ -281,6 +295,16 @@ pub async fn update_route(
         existing.timeout_ms
     };
     let retries = body.retries.unwrap_or(existing.retries);
+    let host_pattern = if let Some(hp) = body.host_pattern {
+        hp
+    } else {
+        existing.host_pattern
+    };
+    let cache_ttl_secs = if let Some(cts) = body.cache_ttl_secs {
+        cts
+    } else {
+        existing.cache_ttl_secs
+    };
 
     if !path_prefix.starts_with('/') {
         return Err(AppError::Validation("path_prefix must start with '/'".into()));
@@ -297,7 +321,7 @@ pub async fn update_route(
     }
 
     let updated: shared::models::Route = sqlx::query_as(
-        "UPDATE routes SET name = $1, path_prefix = $2, methods = $3, upstream_id = $4, strip_prefix = $5, upstream_path_prefix = $6, max_body_bytes = $7, auth_skip = $8, active = $9, timeout_ms = $10, retries = $11, updated_at = now() WHERE id = $12 RETURNING *",
+        "UPDATE routes SET name = $1, path_prefix = $2, methods = $3, upstream_id = $4, strip_prefix = $5, upstream_path_prefix = $6, max_body_bytes = $7, auth_skip = $8, active = $9, timeout_ms = $10, retries = $11, host_pattern = $12, cache_ttl_secs = $13, updated_at = now() WHERE id = $14 RETURNING *",
     )
     .bind(&name)
     .bind(&path_prefix)
@@ -310,6 +334,8 @@ pub async fn update_route(
     .bind(active)
     .bind(timeout_ms)
     .bind(retries)
+    .bind(&host_pattern)
+    .bind(cache_ttl_secs)
     .bind(id)
     .fetch_one(&pool)
     .await?;
@@ -333,6 +359,8 @@ pub async fn update_route(
         max_body_bytes: updated.max_body_bytes,
         timeout_ms: updated.timeout_ms,
         retries: updated.retries,
+        host_pattern: updated.host_pattern,
+        cache_ttl_secs: updated.cache_ttl_secs,
         auth_skip: updated.auth_skip,
         active: updated.active,
         created_at: updated.created_at,
