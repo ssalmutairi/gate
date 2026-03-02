@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-03-02
+
+### Added
+
+- **Response Compression** — gzip/brotli/zstd compression via Pingora `ResponseCompression` module (level 6), automatic `Accept-Encoding` negotiation
+- **Host-Based Routing** — Route matching by `Host` header with exact match and wildcard patterns (`*.example.com`)
+- **IP Allowlist/Denylist** — Per-route CIDR-based IP rules (allow/deny) with admin CRUD endpoints
+- **Response Caching** — Per-route TTL-based in-memory response caching via Pingora cache API for GET requests
+- **Standard Auth Header** — Proxy authentication now uses `Authorization: Bearer <token>` instead of custom `X-Api-Key` header
+
+### Fixed
+
+- **API Key Display** — Dashboard now shows the generated API key in a modal with copy-to-clipboard after creation (was silently discarding the key)
+- **Scope Default** — API key creation form defaults to "Global (all routes)" instead of ambiguous empty placeholder
+
 ## [1.4.0] - 2026-03-02
 
 ### Changed
