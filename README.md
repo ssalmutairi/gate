@@ -16,6 +16,10 @@
   <a href="https://github.com/ssalmutairi/gate/releases/latest"><img src="https://img.shields.io/github/v/release/ssalmutairi/gate" alt="Release" /></a>
 </p>
 
+<p align="center">
+  <strong>Live Demo:</strong> <a href="https://gate.lsa.sa/">gate.lsa.sa</a> — token: <code>changeme</code>
+</p>
+
 ## Architecture
 
 ```
