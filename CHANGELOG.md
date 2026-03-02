@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-03-02
+
+### Changed
+
+- **Lock-Free Rate Limiter** — Replaced `Mutex<HashMap>` rate limiter with `DashMap<String, AtomicU64>` and atomic CAS counters, eliminating the global lock that serialized every rate-limited request at high concurrency
+- **Fixed-Window Counters** — Switched from sliding window (Vec of timestamps) to fixed-window counters: O(1) per request with zero allocations, matching the approach used by nginx/Envoy
+
 ## [1.3.0] - 2026-03-02
 
 ### Added

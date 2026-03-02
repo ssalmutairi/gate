@@ -5,11 +5,11 @@ use crate::metrics;
 use crate::router::GatewayConfig;
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
+use dashmap::DashMap;
 use pingora::prelude::*;
 use pingora::proxy::{ProxyHttp, Session};
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -88,18 +88,25 @@ pub struct GatewayCtx {
     pub retries_total: i32,
 }
 
-/// Simple sliding window rate limiter entry.
-struct RateLimiterEntry {
-    /// Timestamps of requests within the current window.
-    timestamps: Vec<Instant>,
+/// Pack a (window_id, count) pair into a single u64 for atomic CAS.
+/// High 32 bits = window_id, low 32 bits = count.
+fn pack(window_id: u32, count: u32) -> u64 {
+    ((window_id as u64) << 32) | (count as u64)
+}
+
+/// Unpack a u64 into (window_id, count).
+fn unpack(val: u64) -> (u32, u32) {
+    ((val >> 32) as u32, val as u32)
 }
 
 pub struct GatewayProxy {
     pub db_pool: Arc<PgPool>,
     pub config: Arc<ArcSwap<GatewayConfig>>,
     pub rr_counter: AtomicUsize,
-    /// Rate limiter state: key = "{route_id}:{client_identity}", value = request timestamps.
-    rate_limiters: Mutex<HashMap<String, RateLimiterEntry>>,
+    /// Rate limiter state: key = "{route_id}:{client_identity}", value = packed (window_id, count).
+    rate_limiters: DashMap<String, AtomicU64>,
+    /// Baseline instant for computing fixed-window IDs.
+    rate_limiter_epoch: Instant,
     /// Active connection tracker for least-connections algorithm (shared with health checker).
     pub conn_tracker: Arc<Mutex<ConnectionTracker>>,
     /// Async log sender for request logging to PostgreSQL.
@@ -125,7 +132,8 @@ impl GatewayProxy {
             db_pool,
             config,
             rr_counter: AtomicUsize::new(0),
-            rate_limiters: Mutex::new(HashMap::new()),
+            rate_limiters: DashMap::new(),
+            rate_limiter_epoch: Instant::now(),
             conn_tracker,
             log_sender,
             rate_limiter_ops: AtomicU64::new(0),
@@ -135,6 +143,7 @@ impl GatewayProxy {
     }
 
     /// Check rate limit for a given route and client identity.
+    /// Uses a fixed-window counter with atomic CAS — no global lock.
     /// Returns Ok(remaining) or Err(retry_after_secs).
     fn check_rate_limit(
         &self,
@@ -143,37 +152,71 @@ impl GatewayProxy {
         requests_per_second: i32,
     ) -> Result<i32, u64> {
         let key = format!("{}:{}", route_id, client_identity);
-        let now = Instant::now();
-        let window = std::time::Duration::from_secs(1);
+        let current_window = self.rate_limiter_epoch.elapsed().as_secs() as u32;
+        let limit = requests_per_second as u32;
 
-        let mut limiters = self.rate_limiters.lock().unwrap_or_else(|e| e.into_inner());
-
-        // Periodic cleanup: evict expired entries
+        // Periodic cleanup: evict stale entries (per-shard locks, not global)
         let ops = self.rate_limiter_ops.fetch_add(1, Ordering::Relaxed);
-        if ops % RATE_LIMITER_CLEANUP_INTERVAL == 0 || limiters.len() > RATE_LIMITER_MAX_KEYS {
-            limiters.retain(|_, entry| {
-                entry.timestamps.retain(|ts| now.duration_since(*ts) < window);
-                !entry.timestamps.is_empty()
+        if ops.is_multiple_of(RATE_LIMITER_CLEANUP_INTERVAL) || self.rate_limiters.len() > RATE_LIMITER_MAX_KEYS {
+            self.rate_limiters.retain(|_, v| {
+                let (win, _) = unpack(v.load(Ordering::Relaxed));
+                win >= current_window.saturating_sub(1)
             });
         }
-        let entry = limiters.entry(key).or_insert_with(|| RateLimiterEntry {
-            timestamps: Vec::new(),
-        });
 
-        // Remove timestamps outside the 1-second window
-        entry.timestamps.retain(|ts| now.duration_since(*ts) < window);
+        // Fast path: entry already exists
+        if let Some(entry) = self.rate_limiters.get(&key) {
+            return self.cas_increment(&entry, current_window, limit);
+        }
 
-        if entry.timestamps.len() >= requests_per_second as usize {
-            // Rate limited
-            let oldest = entry.timestamps.first().unwrap();
-            let retry_after = window
-                .checked_sub(now.duration_since(*oldest))
-                .unwrap_or(window);
-            Err(retry_after.as_secs().max(1))
-        } else {
-            entry.timestamps.push(now);
-            let remaining = requests_per_second as i32 - entry.timestamps.len() as i32;
-            Ok(remaining)
+        // Slow path: insert new entry
+        let entry = self
+            .rate_limiters
+            .entry(key)
+            .or_insert_with(|| AtomicU64::new(0));
+        self.cas_increment(&entry, current_window, limit)
+    }
+
+    /// Atomically increment the counter for the current window via CAS loop.
+    /// Returns Ok(remaining) or Err(retry_after_secs).
+    fn cas_increment(
+        &self,
+        counter: &AtomicU64,
+        current_window: u32,
+        limit: u32,
+    ) -> Result<i32, u64> {
+        loop {
+            let current = counter.load(Ordering::Acquire);
+            let (win, count) = unpack(current);
+
+            if win != current_window {
+                // Window expired — reset to count=1
+                let new_val = pack(current_window, 1);
+                match counter.compare_exchange_weak(
+                    current,
+                    new_val,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                ) {
+                    Ok(_) => return Ok(limit as i32 - 1),
+                    Err(_) => continue, // Retry CAS
+                }
+            } else if count >= limit {
+                // Over limit
+                return Err(1);
+            } else {
+                // Under limit — increment
+                let new_val = pack(current_window, count + 1);
+                match counter.compare_exchange_weak(
+                    current,
+                    new_val,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                ) {
+                    Ok(_) => return Ok(limit as i32 - (count + 1) as i32),
+                    Err(_) => continue, // Retry CAS
+                }
+            }
         }
     }
 }
@@ -842,9 +885,8 @@ mod tests {
         }
 
         // After RATE_LIMITER_CLEANUP_INTERVAL ops, cleanup should have run
-        // All entries are still within the 1-second window, so nothing evicted yet
-        let limiters = proxy.rate_limiters.lock().unwrap();
-        assert!(limiters.len() <= RATE_LIMITER_CLEANUP_INTERVAL as usize);
+        // All entries are still within the current window, so nothing evicted yet
+        assert!(proxy.rate_limiters.len() <= RATE_LIMITER_CLEANUP_INTERVAL as usize);
     }
 
     #[tokio::test]
@@ -875,19 +917,33 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rate_limiter_mutex_poison_recovery() {
-        let proxy = make_test_proxy();
+    async fn rate_limiter_concurrent_access() {
+        let proxy = Arc::new(make_test_proxy());
         let route_id = Uuid::new_v4();
+        let limit = 1000i32;
+        let num_tasks = 50usize;
 
-        // Poison the mutex by panicking inside a lock
-        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let _guard = proxy.rate_limiters.lock().unwrap();
-            panic!("intentional panic to poison mutex");
-        }));
+        let mut handles = Vec::new();
+        for _ in 0..num_tasks {
+            let proxy = Arc::clone(&proxy);
+            let rid = route_id;
+            handles.push(tokio::spawn(async move {
+                proxy.check_rate_limit(&rid, "client", limit)
+            }));
+        }
 
-        // Should still work via unwrap_or_else(|e| e.into_inner())
-        let result = proxy.check_rate_limit(&route_id, "client", 100);
-        assert!(result.is_ok());
+        let mut ok_count = 0u32;
+        let mut err_count = 0u32;
+        for handle in handles {
+            match handle.await.unwrap() {
+                Ok(_) => ok_count += 1,
+                Err(_) => err_count += 1,
+            }
+        }
+
+        // All 50 should succeed (well under 1000 limit)
+        assert_eq!(ok_count, num_tasks as u32);
+        assert_eq!(err_count, 0);
     }
 
     // --- Trusted proxies ---
