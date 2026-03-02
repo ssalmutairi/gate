@@ -19,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **API Key Display** — Dashboard now shows the generated API key in a modal with copy-to-clipboard after creation (was silently discarding the key)
 - **Scope Default** — API key creation form defaults to "Global (all routes)" instead of ambiguous empty placeholder
+- **Global API Key Creation** — Fixed dashboard sending `__global__` as `route_id` instead of null, causing UUID parse error on the backend
+
+### Changed
+
+- **Dead Code Cleanup** — Removed unused `db_pool` field from `GatewayProxy`, removed unused `get_upstream_cb_config` method, gated test-only functions with `#[cfg(test)]`
 
 ## [1.4.0] - 2026-03-02
 
