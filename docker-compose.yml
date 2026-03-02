@@ -9,6 +9,8 @@ services:
       - "${DB_PORT:-5555}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    networks:
+      - gate
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U gate -d gate"]
       interval: 5s
@@ -17,6 +19,8 @@ services:
 
   gateway:
     build: .
+    networks:
+      - gate
     ports:
       - "${PROXY_PORT:-8080}:8080"
       - "${ADMIN_PORT:-9000}:9000"
@@ -38,6 +42,8 @@ services:
 
   prometheus:
     image: prom/prometheus:latest
+    networks:
+      - gate
     ports:
       - "9090:9090"
     volumes:
@@ -47,6 +53,8 @@ services:
 
   grafana:
     image: grafana/grafana:latest
+    networks:
+      - gate
     ports:
       - "3001:3000"
     environment:
@@ -59,6 +67,10 @@ services:
       - ./grafana/dashboards:/var/lib/grafana/dashboards
     depends_on:
       - prometheus
+
+networks:
+  gate:
+    driver: bridge
 
 volumes:
   pgdata:
