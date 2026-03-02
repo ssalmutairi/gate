@@ -22,23 +22,9 @@
 
 ## Architecture
 
-```
-                    +------------------+
-                    |  Admin API + UI  |  :9000
-                    |  (Axum + React)  |
-                    +--------+---------+
-                             |
-                    +--------v---------+
-                    |   PostgreSQL     |  :5432
-                    +--------+---------+
-                             |
-+----------+       +--------v---------+       +-----------+
-|  Client  | ----> |   Gate Proxy     | ----> | Upstream  |
-|          |       |   (Pingora)      |       | Targets   |
-+----------+       +------------------+       +-----------+
-                      :8080
-                      :9091 (metrics)
-```
+<p align="center">
+  <img src="diagram.png" alt="Gate Architecture" width="700" />
+</p>
 
 ## Features
 
