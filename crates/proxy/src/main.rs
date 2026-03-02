@@ -4,6 +4,7 @@ use pingora::prelude::*;
 use sqlx::postgres::PgPoolOptions;
 use std::sync::{Arc, Mutex};
 
+mod circuit_breaker;
 mod config;
 mod health;
 mod lb;
@@ -60,11 +61,33 @@ fn main() {
     // Shared connection tracker for least-connections algorithm
     let conn_tracker = Arc::new(Mutex::new(ConnectionTracker::new()));
 
+    // Circuit breaker state
+    let circuit_breaker = Arc::new(circuit_breaker::CircuitBreaker::new());
+
+    // Configure circuit breakers from initial config
+    {
+        let cfg = gateway_config.load();
+        for (upstream_id, upstream) in &cfg.upstreams {
+            if let Some(threshold) = upstream.circuit_breaker_threshold {
+                if let Some(targets) = cfg.targets.get(upstream_id) {
+                    for target in targets {
+                        circuit_breaker.configure(
+                            target.id,
+                            threshold as u32,
+                            upstream.circuit_breaker_duration_secs as u32,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     // Spawn config reloader in a background thread with its own runtime and DB pool
     config::spawn_config_reloader(
         app_config.database_url.clone(),
         gateway_config.clone(),
         app_config.config_poll_interval_secs,
+        circuit_breaker.clone(),
     );
 
     // Spawn health checker in a background thread with its own runtime and DB pool
@@ -107,6 +130,7 @@ fn main() {
         conn_tracker,
         log_sender,
         app_config.trusted_proxies.clone(),
+        circuit_breaker,
     );
     let mut proxy_service = http_proxy_service(&server.configuration, proxy);
 

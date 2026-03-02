@@ -64,6 +64,7 @@ async fn run_test_migrations(pool: &PgPool) {
         include_str!("../../../migrations/008_add_route_max_body.sql"),
         include_str!("../../../migrations/009_add_spec_content.sql"),
         include_str!("../../../migrations/010_add_route_auth_skip.sql"),
+        include_str!("../../../migrations/011_add_resilience.sql"),
     ];
     for sql in &migrations {
         for statement in sql.split(';') {
@@ -109,6 +110,7 @@ pub fn spawn_config_reloader(
     database_url: String,
     config: Arc<ArcSwap<GatewayConfig>>,
     interval_secs: u64,
+    circuit_breaker: Arc<crate::circuit_breaker::CircuitBreaker>,
 ) {
     std::thread::spawn(move || {
         let rt = tokio::runtime::Builder::new_current_thread()
@@ -159,6 +161,24 @@ pub fn spawn_config_reloader(
 
                 if should_reload {
                     let new_config = load_config(&pool).await;
+
+                    // Rebuild circuit breaker configs from upstream settings
+                    let mut cb_configs = Vec::new();
+                    for (upstream_id, upstream) in &new_config.upstreams {
+                        if let Some(threshold) = upstream.circuit_breaker_threshold {
+                            if let Some(targets) = new_config.targets.get(upstream_id) {
+                                for target in targets {
+                                    cb_configs.push((
+                                        target.id,
+                                        threshold as u32,
+                                        upstream.circuit_breaker_duration_secs as u32,
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                    circuit_breaker.rebuild(&cb_configs);
+
                     config.store(Arc::new(new_config));
                     last_updated = current_max;
                     tracing::info!("Config reloaded from database");

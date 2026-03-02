@@ -149,6 +149,14 @@ impl GatewayConfig {
     pub fn get_header_rules(&self, route_id: &Uuid) -> Option<&Vec<HeaderRule>> {
         self.header_rules.get(route_id)
     }
+
+    /// Get circuit breaker config for an upstream: (threshold, duration_secs).
+    pub fn get_upstream_cb_config(&self, upstream_id: &Uuid) -> Option<(i32, i32)> {
+        self.upstreams.get(upstream_id).and_then(|u| {
+            u.circuit_breaker_threshold
+                .map(|t| (t, u.circuit_breaker_duration_secs))
+        })
+    }
 }
 
 /// Constant-time byte comparison to prevent timing attacks.

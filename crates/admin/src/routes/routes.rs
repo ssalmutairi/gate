@@ -19,6 +19,8 @@ pub struct CreateRoute {
     pub upstream_path_prefix: Option<String>,
     pub max_body_bytes: Option<i64>,
     pub auth_skip: Option<bool>,
+    pub timeout_ms: Option<i32>,
+    pub retries: Option<i32>,
 }
 
 #[derive(Deserialize)]
@@ -32,6 +34,8 @@ pub struct UpdateRoute {
     pub max_body_bytes: Option<Option<i64>>,
     pub auth_skip: Option<bool>,
     pub active: Option<bool>,
+    pub timeout_ms: Option<Option<i32>>,
+    pub retries: Option<i32>,
 }
 
 #[derive(Serialize)]
@@ -46,6 +50,8 @@ pub struct RouteResponse {
     pub upstream_path_prefix: Option<String>,
     pub service_id: Option<Uuid>,
     pub max_body_bytes: Option<i64>,
+    pub timeout_ms: Option<i32>,
+    pub retries: i32,
     pub auth_skip: bool,
     pub active: bool,
     pub created_at: chrono::DateTime<chrono::Utc>,
@@ -74,6 +80,8 @@ struct RouteWithUpstream {
     upstream_path_prefix: Option<String>,
     service_id: Option<Uuid>,
     max_body_bytes: Option<i64>,
+    timeout_ms: Option<i32>,
+    retries: i32,
     auth_skip: bool,
     active: bool,
     created_at: chrono::DateTime<chrono::Utc>,
@@ -93,6 +101,8 @@ impl From<RouteWithUpstream> for RouteResponse {
             upstream_path_prefix: r.upstream_path_prefix,
             service_id: r.service_id,
             max_body_bytes: r.max_body_bytes,
+            timeout_ms: r.timeout_ms,
+            retries: r.retries,
             auth_skip: r.auth_skip,
             active: r.active,
             created_at: r.created_at,
@@ -119,6 +129,7 @@ pub async fn list_routes(
         r#"SELECT r.id, r.name, r.path_prefix, r.methods, r.upstream_id,
                   u.name as upstream_name, r.strip_prefix,
                   r.upstream_path_prefix, r.service_id, r.max_body_bytes,
+                  r.timeout_ms, r.retries,
                   r.auth_skip, r.active, r.created_at, r.updated_at
            FROM routes r
            LEFT JOIN upstreams u ON u.id = r.upstream_id
@@ -151,9 +162,20 @@ pub async fn create_route(
 
     let strip_prefix = body.strip_prefix.unwrap_or(false);
     let auth_skip = body.auth_skip.unwrap_or(false);
+    let retries = body.retries.unwrap_or(0);
+
+    // Validate resilience fields
+    if retries < 0 || retries > 3 {
+        return Err(AppError::Validation("retries must be between 0 and 3".into()));
+    }
+    if let Some(timeout) = body.timeout_ms {
+        if timeout < 100 || timeout > 300_000 {
+            return Err(AppError::Validation("timeout_ms must be between 100 and 300000".into()));
+        }
+    }
 
     let route: shared::models::Route = sqlx::query_as(
-        "INSERT INTO routes (name, path_prefix, methods, upstream_id, strip_prefix, upstream_path_prefix, max_body_bytes, auth_skip) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *",
+        "INSERT INTO routes (name, path_prefix, methods, upstream_id, strip_prefix, upstream_path_prefix, max_body_bytes, auth_skip, timeout_ms, retries) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *",
     )
     .bind(body.name.trim())
     .bind(&body.path_prefix)
@@ -163,6 +185,8 @@ pub async fn create_route(
     .bind(&body.upstream_path_prefix)
     .bind(body.max_body_bytes)
     .bind(auth_skip)
+    .bind(body.timeout_ms)
+    .bind(retries)
     .fetch_one(&pool)
     .await?;
 
@@ -186,6 +210,8 @@ pub async fn create_route(
             upstream_path_prefix: route.upstream_path_prefix,
             service_id: route.service_id,
             max_body_bytes: route.max_body_bytes,
+            timeout_ms: route.timeout_ms,
+            retries: route.retries,
             auth_skip: route.auth_skip,
             active: route.active,
             created_at: route.created_at,
@@ -202,6 +228,7 @@ pub async fn get_route(
         r#"SELECT r.id, r.name, r.path_prefix, r.methods, r.upstream_id,
                   u.name as upstream_name, r.strip_prefix,
                   r.upstream_path_prefix, r.service_id, r.max_body_bytes,
+                  r.timeout_ms, r.retries,
                   r.auth_skip, r.active, r.created_at, r.updated_at
            FROM routes r
            LEFT JOIN upstreams u ON u.id = r.upstream_id
@@ -248,13 +275,29 @@ pub async fn update_route(
     };
     let auth_skip = body.auth_skip.unwrap_or(existing.auth_skip);
     let active = body.active.unwrap_or(existing.active);
+    let timeout_ms = if let Some(tms) = body.timeout_ms {
+        tms
+    } else {
+        existing.timeout_ms
+    };
+    let retries = body.retries.unwrap_or(existing.retries);
 
     if !path_prefix.starts_with('/') {
         return Err(AppError::Validation("path_prefix must start with '/'".into()));
     }
 
+    // Validate resilience fields
+    if retries < 0 || retries > 3 {
+        return Err(AppError::Validation("retries must be between 0 and 3".into()));
+    }
+    if let Some(timeout) = timeout_ms {
+        if timeout < 100 || timeout > 300_000 {
+            return Err(AppError::Validation("timeout_ms must be between 100 and 300000".into()));
+        }
+    }
+
     let updated: shared::models::Route = sqlx::query_as(
-        "UPDATE routes SET name = $1, path_prefix = $2, methods = $3, upstream_id = $4, strip_prefix = $5, upstream_path_prefix = $6, max_body_bytes = $7, auth_skip = $8, active = $9, updated_at = now() WHERE id = $10 RETURNING *",
+        "UPDATE routes SET name = $1, path_prefix = $2, methods = $3, upstream_id = $4, strip_prefix = $5, upstream_path_prefix = $6, max_body_bytes = $7, auth_skip = $8, active = $9, timeout_ms = $10, retries = $11, updated_at = now() WHERE id = $12 RETURNING *",
     )
     .bind(&name)
     .bind(&path_prefix)
@@ -265,6 +308,8 @@ pub async fn update_route(
     .bind(max_body_bytes)
     .bind(auth_skip)
     .bind(active)
+    .bind(timeout_ms)
+    .bind(retries)
     .bind(id)
     .fetch_one(&pool)
     .await?;
@@ -286,6 +331,8 @@ pub async fn update_route(
         upstream_path_prefix: updated.upstream_path_prefix,
         service_id: updated.service_id,
         max_body_bytes: updated.max_body_bytes,
+        timeout_ms: updated.timeout_ms,
+        retries: updated.retries,
         auth_skip: updated.auth_skip,
         active: updated.active,
         created_at: updated.created_at,

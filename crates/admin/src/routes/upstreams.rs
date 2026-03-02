@@ -18,6 +18,8 @@ pub struct PaginationParams {
 pub struct CreateUpstream {
     pub name: String,
     pub algorithm: Option<String>,
+    pub circuit_breaker_threshold: Option<i32>,
+    pub circuit_breaker_duration_secs: Option<i32>,
 }
 
 #[derive(Deserialize)]
@@ -25,6 +27,8 @@ pub struct UpdateUpstream {
     pub name: Option<String>,
     pub algorithm: Option<String>,
     pub active: Option<bool>,
+    pub circuit_breaker_threshold: Option<Option<i32>>,
+    pub circuit_breaker_duration_secs: Option<i32>,
 }
 
 #[derive(Deserialize)]
@@ -40,6 +44,8 @@ pub struct UpstreamResponse {
     pub id: Uuid,
     pub name: String,
     pub algorithm: String,
+    pub circuit_breaker_threshold: Option<i32>,
+    pub circuit_breaker_duration_secs: i32,
     pub active: bool,
     pub targets: Vec<TargetResponse>,
     pub created_at: chrono::DateTime<chrono::Utc>,
@@ -101,6 +107,8 @@ pub async fn list_upstreams(
             id: u.id,
             name: u.name,
             algorithm: u.algorithm,
+            circuit_breaker_threshold: u.circuit_breaker_threshold,
+            circuit_breaker_duration_secs: u.circuit_breaker_duration_secs,
             active: u.active,
             targets,
             created_at: u.created_at,
@@ -134,11 +142,24 @@ pub async fn create_upstream(
         ));
     }
 
+    // Validate circuit breaker fields
+    if let Some(threshold) = body.circuit_breaker_threshold {
+        if threshold < 1 || threshold > 100 {
+            return Err(AppError::Validation("circuit_breaker_threshold must be between 1 and 100".into()));
+        }
+    }
+    let cb_duration = body.circuit_breaker_duration_secs.unwrap_or(30);
+    if cb_duration < 5 || cb_duration > 3600 {
+        return Err(AppError::Validation("circuit_breaker_duration_secs must be between 5 and 3600".into()));
+    }
+
     let upstream: shared::models::Upstream = sqlx::query_as(
-        "INSERT INTO upstreams (name, algorithm) VALUES ($1, $2) RETURNING *",
+        "INSERT INTO upstreams (name, algorithm, circuit_breaker_threshold, circuit_breaker_duration_secs) VALUES ($1, $2, $3, $4) RETURNING *",
     )
     .bind(body.name.trim())
     .bind(&algorithm)
+    .bind(body.circuit_breaker_threshold)
+    .bind(cb_duration)
     .fetch_one(&pool)
     .await?;
 
@@ -148,6 +169,8 @@ pub async fn create_upstream(
             id: upstream.id,
             name: upstream.name,
             algorithm: upstream.algorithm,
+            circuit_breaker_threshold: upstream.circuit_breaker_threshold,
+            circuit_breaker_duration_secs: upstream.circuit_breaker_duration_secs,
             active: upstream.active,
             targets: vec![],
             created_at: upstream.created_at,
@@ -177,6 +200,8 @@ pub async fn get_upstream(
         id: upstream.id,
         name: upstream.name,
         algorithm: upstream.algorithm,
+        circuit_breaker_threshold: upstream.circuit_breaker_threshold,
+        circuit_breaker_duration_secs: upstream.circuit_breaker_duration_secs,
         active: upstream.active,
         targets,
         created_at: upstream.created_at,
@@ -202,6 +227,14 @@ pub async fn update_upstream(
         .unwrap_or(existing.name);
     let algorithm = body.algorithm.unwrap_or(existing.algorithm);
     let active = body.active.unwrap_or(existing.active);
+    let circuit_breaker_threshold = if let Some(cbt) = body.circuit_breaker_threshold {
+        cbt
+    } else {
+        existing.circuit_breaker_threshold
+    };
+    let circuit_breaker_duration_secs = body
+        .circuit_breaker_duration_secs
+        .unwrap_or(existing.circuit_breaker_duration_secs);
 
     if algorithm != "round_robin" && algorithm != "weighted_round_robin" && algorithm != "least_connections" {
         return Err(AppError::Validation(
@@ -209,12 +242,24 @@ pub async fn update_upstream(
         ));
     }
 
+    // Validate circuit breaker fields
+    if let Some(threshold) = circuit_breaker_threshold {
+        if threshold < 1 || threshold > 100 {
+            return Err(AppError::Validation("circuit_breaker_threshold must be between 1 and 100".into()));
+        }
+    }
+    if circuit_breaker_duration_secs < 5 || circuit_breaker_duration_secs > 3600 {
+        return Err(AppError::Validation("circuit_breaker_duration_secs must be between 5 and 3600".into()));
+    }
+
     let updated: shared::models::Upstream = sqlx::query_as(
-        "UPDATE upstreams SET name = $1, algorithm = $2, active = $3, updated_at = now() WHERE id = $4 RETURNING *",
+        "UPDATE upstreams SET name = $1, algorithm = $2, active = $3, circuit_breaker_threshold = $4, circuit_breaker_duration_secs = $5, updated_at = now() WHERE id = $6 RETURNING *",
     )
     .bind(&name)
     .bind(&algorithm)
     .bind(active)
+    .bind(circuit_breaker_threshold)
+    .bind(circuit_breaker_duration_secs)
     .bind(id)
     .fetch_one(&pool)
     .await?;
@@ -229,6 +274,8 @@ pub async fn update_upstream(
         id: updated.id,
         name: updated.name,
         algorithm: updated.algorithm,
+        circuit_breaker_threshold: updated.circuit_breaker_threshold,
+        circuit_breaker_duration_secs: updated.circuit_breaker_duration_secs,
         active: updated.active,
         targets,
         created_at: updated.created_at,

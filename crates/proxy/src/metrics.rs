@@ -55,6 +55,26 @@ pub static AUTH_FAILURES: Lazy<CounterVec> = Lazy::new(|| {
     .unwrap()
 });
 
+// Retry attempts
+pub static RETRIES_TOTAL: Lazy<CounterVec> = Lazy::new(|| {
+    register_counter_vec!(
+        "gateway_retries_total",
+        "Total retry attempts",
+        &["route"]
+    )
+    .unwrap()
+});
+
+// Circuit breaker trips
+pub static CIRCUIT_BREAKER_TRIPS: Lazy<CounterVec> = Lazy::new(|| {
+    register_counter_vec!(
+        "gateway_circuit_breaker_trips_total",
+        "Total circuit breaker trips to OPEN",
+        &["upstream", "target"]
+    )
+    .unwrap()
+});
+
 // Active connections gauge
 pub static ACTIVE_CONNECTIONS: Lazy<Gauge> = Lazy::new(|| {
     prometheus::register_gauge!(
@@ -81,6 +101,8 @@ pub fn init() {
     Lazy::force(&UPSTREAM_ERRORS);
     Lazy::force(&RATE_LIMIT_HITS);
     Lazy::force(&AUTH_FAILURES);
+    Lazy::force(&RETRIES_TOTAL);
+    Lazy::force(&CIRCUIT_BREAKER_TRIPS);
     Lazy::force(&ACTIVE_CONNECTIONS);
     Lazy::force(&UPSTREAM_HEALTH);
 }
@@ -133,6 +155,12 @@ mod tests {
         UPSTREAM_HEALTH
             .with_label_values(&["test_up", "test_tgt"])
             .set(1.0);
+        RETRIES_TOTAL
+            .with_label_values(&["test_route"])
+            .inc();
+        CIRCUIT_BREAKER_TRIPS
+            .with_label_values(&["test_up", "test_tgt"])
+            .inc();
 
         let output = encode_metrics();
         assert!(output.contains("gateway_requests_total"));
@@ -142,6 +170,8 @@ mod tests {
         assert!(output.contains("gateway_auth_failures_total"));
         assert!(output.contains("gateway_active_connections"));
         assert!(output.contains("gateway_upstream_health"));
+        assert!(output.contains("gateway_retries_total"));
+        assert!(output.contains("gateway_circuit_breaker_trips_total"));
     }
 
     #[test]

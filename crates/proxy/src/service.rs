@@ -1,3 +1,4 @@
+use crate::circuit_breaker::CircuitBreaker;
 use crate::lb::{self, Algorithm, ConnectionTracker};
 use crate::logging::RequestLogEntry;
 use crate::metrics;
@@ -79,6 +80,12 @@ pub struct GatewayCtx {
     pub target_tls: bool,
     /// The client identity for rate limiting (IP or API key hash).
     pub client_identity: Option<String>,
+    /// Per-route timeout override (milliseconds).
+    pub timeout_ms: Option<i32>,
+    /// Number of retries remaining for the current request.
+    pub retries_remaining: i32,
+    /// Total retries configured for this route.
+    pub retries_total: i32,
 }
 
 /// Simple sliding window rate limiter entry.
@@ -101,6 +108,8 @@ pub struct GatewayProxy {
     rate_limiter_ops: AtomicU64,
     /// Trusted proxy IPs/CIDRs — only trust X-Forwarded-For from these peers.
     trusted_proxies: Vec<String>,
+    /// Circuit breaker state tracker.
+    pub circuit_breaker: Arc<CircuitBreaker>,
 }
 
 impl GatewayProxy {
@@ -110,6 +119,7 @@ impl GatewayProxy {
         conn_tracker: Arc<Mutex<ConnectionTracker>>,
         log_sender: tokio::sync::mpsc::Sender<RequestLogEntry>,
         trusted_proxies: Vec<String>,
+        circuit_breaker: Arc<CircuitBreaker>,
     ) -> Self {
         Self {
             db_pool,
@@ -120,6 +130,7 @@ impl GatewayProxy {
             log_sender,
             rate_limiter_ops: AtomicU64::new(0),
             trusted_proxies,
+            circuit_breaker,
         }
     }
 
@@ -183,6 +194,9 @@ impl ProxyHttp for GatewayProxy {
             upstream_path_prefix: None,
             target_tls: false,
             client_identity: None,
+            timeout_ms: None,
+            retries_remaining: 0,
+            retries_total: 0,
         }
     }
 
@@ -212,6 +226,9 @@ impl ProxyHttp for GatewayProxy {
         ctx.strip_prefix = route.strip_prefix;
         ctx.path_prefix = route.path_prefix.clone();
         ctx.upstream_path_prefix = route.upstream_path_prefix.clone();
+        ctx.timeout_ms = route.timeout_ms;
+        ctx.retries_remaining = route.retries.min(3);
+        ctx.retries_total = route.retries.min(3);
 
         // --- 1b. Request size limiting ---
         if let Some(max_bytes) = route.max_body_bytes {
@@ -338,6 +355,27 @@ impl ProxyHttp for GatewayProxy {
             ));
         }
 
+        // Filter out circuit-broken targets
+        let available: Vec<&shared::models::Target> = healthy
+            .into_iter()
+            .filter(|t| self.circuit_breaker.is_available(&t.id))
+            .collect();
+
+        if available.is_empty() {
+            let _ = self
+                .send_json_error(
+                    session,
+                    503,
+                    "All upstream targets are circuit-broken",
+                    "CIRCUIT_BREAKER_OPEN",
+                )
+                .await;
+            return Err(pingora::Error::new_str(
+                "All upstream targets are circuit-broken",
+            ));
+        }
+        let healthy = available;
+
         // Determine algorithm from upstream config
         let algorithm = config
             .upstreams
@@ -380,10 +418,21 @@ impl ProxyHttp for GatewayProxy {
             peer.options.set_http_version(2, 1);
         }
 
-        // Set upstream timeouts to prevent slow upstream from holding connections
-        peer.options.connection_timeout = Some(std::time::Duration::from_secs(10));
-        peer.options.read_timeout = Some(std::time::Duration::from_secs(60));
-        peer.options.write_timeout = Some(std::time::Duration::from_secs(10));
+        // Set upstream timeouts — use per-route config or defaults
+        if let Some(ms) = ctx.timeout_ms {
+            let timeout = std::time::Duration::from_millis(ms as u64);
+            // Read timeout = 6x connect/write timeout, capped at 300s
+            let read_timeout = std::time::Duration::from_millis(
+                ((ms as u64) * 6).min(300_000),
+            );
+            peer.options.connection_timeout = Some(timeout);
+            peer.options.read_timeout = Some(read_timeout);
+            peer.options.write_timeout = Some(timeout);
+        } else {
+            peer.options.connection_timeout = Some(std::time::Duration::from_secs(10));
+            peer.options.read_timeout = Some(std::time::Duration::from_secs(60));
+            peer.options.write_timeout = Some(std::time::Duration::from_secs(10));
+        }
 
         Ok(Box::new(peer))
     }
@@ -503,12 +552,77 @@ impl ProxyHttp for GatewayProxy {
         Ok(())
     }
 
+    fn fail_to_connect(
+        &self,
+        _session: &mut Session,
+        _peer: &HttpPeer,
+        ctx: &mut Self::CTX,
+        mut e: Box<pingora::Error>,
+    ) -> Box<pingora::Error> {
+        // Record circuit breaker failure
+        if let Some(target_id) = ctx.target_id {
+            let tripped = self.circuit_breaker.record_failure(&target_id);
+            if tripped {
+                metrics::CIRCUIT_BREAKER_TRIPS
+                    .with_label_values(&[
+                        &ctx.upstream_id.map(|id| id.to_string()).unwrap_or_default(),
+                        &ctx.upstream_target.as_deref().unwrap_or("-").to_string(),
+                    ])
+                    .inc();
+            }
+
+            // Decrement connection count (was incremented in upstream_peer)
+            let tracker = self.conn_tracker.lock().unwrap_or_else(|e| e.into_inner());
+            tracker.decrement(&target_id);
+            metrics::ACTIVE_CONNECTIONS.dec();
+        }
+
+        // Record upstream error metric
+        metrics::UPSTREAM_ERRORS
+            .with_label_values(&[
+                &ctx.upstream_id.map(|id| id.to_string()).unwrap_or_default(),
+                &ctx.upstream_target.as_deref().unwrap_or("-").to_string(),
+            ])
+            .inc();
+
+        // Retry if retries remaining
+        if ctx.retries_remaining > 0 {
+            ctx.retries_remaining -= 1;
+            ctx.target_id = None; // Force new target selection
+            ctx.upstream_target = None;
+            e.set_retry(true);
+            metrics::RETRIES_TOTAL
+                .with_label_values(&[&ctx.route_id.map(|id| id.to_string()).unwrap_or_default()])
+                .inc();
+        }
+
+        e
+    }
+
     async fn upstream_response_filter(
         &self,
         _session: &mut Session,
         upstream_response: &mut pingora::http::ResponseHeader,
         ctx: &mut Self::CTX,
     ) -> Result<()> {
+        // Circuit breaker: track success/failure by status code
+        if let Some(target_id) = ctx.target_id {
+            let status = upstream_response.status.as_u16();
+            if status >= 500 {
+                let tripped = self.circuit_breaker.record_failure(&target_id);
+                if tripped {
+                    metrics::CIRCUIT_BREAKER_TRIPS
+                        .with_label_values(&[
+                            &ctx.upstream_id.map(|id| id.to_string()).unwrap_or_default(),
+                            &ctx.upstream_target.as_deref().unwrap_or("-").to_string(),
+                        ])
+                        .inc();
+                }
+            } else {
+                self.circuit_breaker.record_success(&target_id);
+            }
+        }
+
         // Apply user-configured response-phase header rules
         if let Some(route_id) = ctx.route_id {
             let config = self.config.load();
@@ -598,6 +712,7 @@ impl ProxyHttp for GatewayProxy {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::circuit_breaker::CircuitBreaker;
     use crate::lb::ConnectionTracker;
     use crate::router::GatewayConfig;
     use arc_swap::ArcSwap;
@@ -615,6 +730,7 @@ mod tests {
             Arc::new(Mutex::new(ConnectionTracker::new())),
             tx,
             vec![],
+            Arc::new(CircuitBreaker::new()),
         )
     }
 
@@ -697,6 +813,9 @@ mod tests {
         assert!(ctx.upstream_path_prefix.is_none());
         assert!(!ctx.target_tls);
         assert!(ctx.client_identity.is_none());
+        assert!(ctx.timeout_ms.is_none());
+        assert_eq!(ctx.retries_remaining, 0);
+        assert_eq!(ctx.retries_total, 0);
     }
 
     #[tokio::test]
@@ -786,6 +905,7 @@ mod tests {
             Arc::new(Mutex::new(ConnectionTracker::new())),
             tx,
             vec!["10.0.0.1".to_string(), "172.16.0.1".to_string()],
+            Arc::new(CircuitBreaker::new()),
         );
         assert_eq!(proxy.trusted_proxies.len(), 2);
         assert_eq!(proxy.trusted_proxies[0], "10.0.0.1");
