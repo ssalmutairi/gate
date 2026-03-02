@@ -1,10 +1,12 @@
 import { useQuery } from '@tanstack/react-query';
 import { getHealth } from '../lib/api';
 import { useTheme } from '../hooks/useTheme';
+import { useAuth } from '../hooks/useAuth';
 import { useTimezone, TIMEZONES } from '../hooks/useTimezone';
 import { THEMES, type ThemeId } from '../lib/themes';
 import { Card } from '../components/ui/card';
 import { Label } from '../components/ui/label';
+import { Button } from '../components/ui/button';
 import {
   Select,
   SelectContent,
@@ -12,9 +14,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../components/ui/select';
+import { LogOut } from 'lucide-react';
 
 export default function SettingsPage() {
   const { theme, setTheme } = useTheme();
+  const { token, logout } = useAuth();
   const { timezone, setTimezone } = useTimezone();
   const health = useQuery({ queryKey: ['health'], queryFn: getHealth, staleTime: 60_000 });
 
@@ -62,6 +66,23 @@ export default function SettingsPage() {
             <p className="text-xs text-muted-foreground mt-1">
               All dates and times across the dashboard will use this timezone.
             </p>
+          </div>
+        </Card>
+
+        {/* Authentication */}
+        <Card className="p-6">
+          <h2 className="text-lg font-semibold mb-4">Authentication</h2>
+          <div className="space-y-3 text-sm">
+            <div className="flex justify-between items-center">
+              <span className="text-muted-foreground">Admin Token</span>
+              <span className="font-mono">
+                {token ? `${token.slice(0, 4)}${'*'.repeat(Math.min(token.length - 4, 12))}` : '—'}
+              </span>
+            </div>
+            <Button variant="outline" size="sm" onClick={logout}>
+              <LogOut className="w-4 h-4 mr-2" />
+              Sign Out
+            </Button>
           </div>
         </Card>
 

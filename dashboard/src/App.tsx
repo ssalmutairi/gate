@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import ThemeProvider from './components/ThemeProvider';
+import AuthProvider from './components/AuthProvider';
 import Layout from './components/Layout';
 import DashboardPage from './pages/DashboardPage';
 import RoutesPage from './pages/RoutesPage';
@@ -27,24 +28,26 @@ function App() {
 
   return (
     <ThemeProvider>
-      <QueryClientProvider client={queryClient}>
-        <BrowserRouter>
-          <Layout>
-            <Routes>
-              <Route path="/" element={<DashboardPage />} />
-              <Route path="/services" element={<ServicesPage />} />
-              <Route path="/services/:id" element={<ServiceDetailPage />} />
-              <Route path="/routes" element={<RoutesPage />} />
-              <Route path="/upstreams" element={<UpstreamsPage />} />
-              <Route path="/api-keys" element={<ApiKeysPage />} />
-              <Route path="/rate-limits" element={<RateLimitsPage />} />
-              <Route path="/logs" element={<LogsPage />} />
-              <Route path="/settings" element={<SettingsPage />} />
-            </Routes>
-          </Layout>
-          <Toaster />
-        </BrowserRouter>
-      </QueryClientProvider>
+      <AuthProvider>
+        <QueryClientProvider client={queryClient}>
+          <BrowserRouter>
+            <Layout>
+              <Routes>
+                <Route path="/" element={<DashboardPage />} />
+                <Route path="/services" element={<ServicesPage />} />
+                <Route path="/services/:id" element={<ServiceDetailPage />} />
+                <Route path="/routes" element={<RoutesPage />} />
+                <Route path="/upstreams" element={<UpstreamsPage />} />
+                <Route path="/api-keys" element={<ApiKeysPage />} />
+                <Route path="/rate-limits" element={<RateLimitsPage />} />
+                <Route path="/logs" element={<LogsPage />} />
+                <Route path="/settings" element={<SettingsPage />} />
+              </Routes>
+            </Layout>
+            <Toaster />
+          </BrowserRouter>
+        </QueryClientProvider>
+      </AuthProvider>
     </ThemeProvider>
   );
 }

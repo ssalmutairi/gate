@@ -12,8 +12,10 @@ import {
   Settings,
   ChevronsLeft,
   ChevronsRight,
+  LogOut,
 } from 'lucide-react';
 import { useState } from 'react';
+import { useAuth } from '../hooks/useAuth';
 
 const navItems = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -28,6 +30,7 @@ const navItems = [
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
+  const { logout } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(() =>
     localStorage.getItem('gate-sidebar-collapsed') === 'true'
@@ -94,12 +97,19 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           })}
         </nav>
         <div className={`border-t border-border ${collapsed ? 'lg:px-2 lg:py-2' : 'px-4 py-3'}`}>
-          <div className={`hidden lg:flex items-center text-xs text-muted-foreground ${
-            collapsed ? 'justify-center' : 'justify-end px-1'
+          <div className={`flex items-center text-xs text-muted-foreground ${
+            collapsed ? 'flex-col gap-1 justify-center' : 'justify-between px-1'
           }`}>
             <button
-              onClick={toggleCollapsed}
+              onClick={logout}
               className="p-1 hover:text-foreground transition-colors rounded hover:bg-muted"
+              title="Sign out"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+            <button
+              onClick={toggleCollapsed}
+              className="hidden lg:block p-1 hover:text-foreground transition-colors rounded hover:bg-muted"
               title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             >
               {collapsed ? (
