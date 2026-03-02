@@ -1,26 +1,31 @@
-# Gate
+<p align="center">
+  <img src="logo.png" alt="Gate" width="180" />
+</p>
 
-![Coverage](https://img.shields.io/badge/coverage-96.8%25-brightgreen)
-![Tests](https://img.shields.io/badge/tests-117%20passed-brightgreen)
-![Rust](https://img.shields.io/badge/rust-1.93-orange)
-![License](https://img.shields.io/badge/license-Apache--2.0-blue)
+<h1 align="center">Gate</h1>
 
-A high-performance API gateway built with Rust, featuring dynamic routing, load balancing, authentication, rate limiting, and a React dashboard.
+<p align="center">
+  A high-performance API gateway built with Rust, featuring dynamic routing, load balancing, authentication, rate limiting, and an embedded React dashboard.
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/coverage-96.8%25-brightgreen" alt="Coverage" />
+  <img src="https://img.shields.io/badge/tests-117%20passed-brightgreen" alt="Tests" />
+  <img src="https://img.shields.io/badge/rust-1.93-orange" alt="Rust" />
+  <img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="License" />
+  <a href="https://github.com/ssalmutairi/gate/releases/latest"><img src="https://img.shields.io/github/v/release/ssalmutairi/gate" alt="Release" /></a>
+</p>
 
 ## Architecture
 
 ```
                     +------------------+
-                    |   React Dashboard|  :3000
+                    |  Admin API + UI  |  :9000
+                    |  (Axum + React)  |
                     +--------+---------+
                              |
                     +--------v---------+
-                    |    Admin API     |  :9000
-                    |    (Axum)        |
-                    +--------+---------+
-                             |
-                    +--------v---------+
-                    |   PostgreSQL     |  :5555
+                    |   PostgreSQL     |  :5432
                     +--------+---------+
                              |
 +----------+       +--------v---------+       +-----------+
@@ -41,32 +46,42 @@ A high-performance API gateway built with Rust, featuring dynamic routing, load 
 - **Hot Reload** - Config changes polled from DB every N seconds
 - **Prometheus Metrics** - Request counters, latency histograms, health gauges
 - **Request Logging** - Async batched logging to PostgreSQL
-- **React Dashboard** - Full CRUD UI for managing gateway configuration
+- **Embedded Dashboard** - React UI compiled into the admin binary, served on the same port
+- **Cross-Platform Binaries** - Precompiled releases for Linux and macOS (x86_64 + aarch64)
 - **Docker Compose** - One-command deployment of the full stack
 
 ## Quick Start
 
-### Docker Compose (Recommended)
+### Install (Linux / macOS)
 
-The fastest way to get Gate running with all services:
+```bash
+curl -fsSL https://raw.githubusercontent.com/ssalmutairi/gate/main/install.sh | bash
+```
+
+Or download a specific version:
+
+```bash
+VERSION=v1.3.0 curl -fsSL https://raw.githubusercontent.com/ssalmutairi/gate/main/install.sh | bash
+```
+
+This installs `gate-proxy` and `gate-admin` to `/usr/local/bin`. Set `DATABASE_URL` and run `gate-admin` to get started — the dashboard is available at `http://localhost:9000`.
+
+### Docker Compose
 
 ```bash
 docker compose up -d
 ```
 
-This starts all 5 services:
-
 | Service | Port | Description |
 |---------|------|-------------|
-| PostgreSQL | 5555 | Database (auto-migrated) |
+| PostgreSQL | 5432 | Database (auto-migrated) |
 | Gateway | 8080 | Reverse proxy |
-| Gateway | 9000 | Admin API |
+| Gateway | 9000 | Admin API + Dashboard UI |
 | Gateway | 9091 | Prometheus metrics |
-| Dashboard | 3000 | React management UI |
 | Prometheus | 9090 | Metrics collection |
 | Grafana | 3001 | Dashboards (admin/admin) |
 
-Open http://localhost:3000 to access the dashboard.
+Open http://localhost:9000 to access the dashboard.
 
 ### Manual Development Setup
 
@@ -99,15 +114,13 @@ cargo run --bin admin
 cargo run --bin proxy
 ```
 
-#### 4. Run the Dashboard
+#### 4. Build & Embed the Dashboard
 
 ```bash
-cd dashboard
-npm install
-npm run dev
+cd dashboard && npm install && npm run build && cd ..
 ```
 
-Open http://localhost:3000 to access the dashboard.
+The admin binary embeds the dashboard at compile time. After building, open http://localhost:9000 to access both the API and the dashboard UI.
 
 ### Test the Proxy
 
