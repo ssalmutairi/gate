@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "gate.fullname" . }}-proxy
+  labels:
+    {{- include "gate.labels" . | nindent 4 }}
+    {{- include "gate.proxy.selectorLabels" . | nindent 4 }}
+spec:
+  type: {{ .Values.proxy.service.type }}
+  ports:
+    - name: proxy
+      port: {{ .Values.proxy.service.port }}
+      targetPort: proxy
+      protocol: TCP
+    - name: metrics
+      port: {{ .Values.proxy.service.metricsPort }}
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    {{- include "gate.proxy.selectorLabels" . | nindent 4 }}

@@ -1,0 +1,87 @@
+{{- if .Values.ingress.enabled }}
+{{- $fullName := include "gate.fullname" . -}}
+---
+# Proxy Ingress (public traffic)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $fullName }}-proxy
+  labels:
+    {{- include "gate.labels" . | nindent 4 }}
+    {{- include "gate.proxy.selectorLabels" . | nindent 4 }}
+  {{- with .Values.ingress.proxy.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  {{- if .Values.ingress.proxy.tls }}
+  tls:
+    {{- range .Values.ingress.proxy.tls }}
+    - hosts:
+        {{- range .hosts }}
+        - {{ . | quote }}
+        {{- end }}
+      secretName: {{ .secretName }}
+    {{- end }}
+  {{- end }}
+  rules:
+    {{- range .Values.ingress.proxy.hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          {{- range .paths }}
+          - path: {{ .path }}
+            pathType: {{ .pathType }}
+            backend:
+              service:
+                name: {{ $fullName }}-proxy
+                port:
+                  name: proxy
+          {{- end }}
+    {{- end }}
+---
+# Admin Ingress (restricted access)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $fullName }}-admin
+  labels:
+    {{- include "gate.labels" . | nindent 4 }}
+    {{- include "gate.admin.selectorLabels" . | nindent 4 }}
+  {{- with .Values.ingress.admin.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  {{- if .Values.ingress.admin.tls }}
+  tls:
+    {{- range .Values.ingress.admin.tls }}
+    - hosts:
+        {{- range .hosts }}
+        - {{ . | quote }}
+        {{- end }}
+      secretName: {{ .secretName }}
+    {{- end }}
+  {{- end }}
+  rules:
+    {{- range .Values.ingress.admin.hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          {{- range .paths }}
+          - path: {{ .path }}
+            pathType: {{ .pathType }}
+            backend:
+              service:
+                name: {{ $fullName }}-admin
+                port:
+                  name: admin
+          {{- end }}
+    {{- end }}
+{{- end }}

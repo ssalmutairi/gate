@@ -1,0 +1,25 @@
+apiVersion: v2
+name: gate
+description: A high-performance API gateway built with Rust and Pingora
+type: application
+version: 0.1.0
+appVersion: "1.5.0"
+keywords:
+  - api-gateway
+  - proxy
+  - rust
+  - pingora
+home: https://github.com/ssalmutairi/gate
+maintainers:
+  - name: gate
+sources:
+  - https://github.com/ssalmutairi/gate
+dependencies:
+  - name: postgresql
+    version: "~16.4.0"
+    repository: https://charts.bitnami.com/bitnami
+    condition: postgresql.enabled
+  - name: redis
+    version: "~20.6.0"
+    repository: https://charts.bitnami.com/bitnami
+    condition: redis.enabled

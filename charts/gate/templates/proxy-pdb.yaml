@@ -1,0 +1,14 @@
+{{- if .Values.proxy.pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "gate.fullname" . }}-proxy
+  labels:
+    {{- include "gate.labels" . | nindent 4 }}
+    {{- include "gate.proxy.selectorLabels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.proxy.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "gate.proxy.selectorLabels" . | nindent 6 }}
+{{- end }}

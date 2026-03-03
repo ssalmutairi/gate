@@ -1,0 +1,35 @@
+Gate API Gateway has been deployed!
+
+Components:
+  - Proxy:  {{ .Values.proxy.replicaCount }} replica(s)
+  - Admin:  {{ .Values.admin.replicaCount }} replica(s)
+
+{{- if .Values.ingress.enabled }}
+
+Ingress is enabled:
+{{- range .Values.ingress.proxy.hosts }}
+  Proxy: http{{ if $.Values.ingress.proxy.tls }}s{{ end }}://{{ .host }}
+{{- end }}
+{{- range .Values.ingress.admin.hosts }}
+  Admin: http{{ if $.Values.ingress.admin.tls }}s{{ end }}://{{ .host }}
+{{- end }}
+{{- else }}
+
+To access the services, use port-forwarding:
+
+  # Proxy (API traffic)
+  kubectl port-forward svc/{{ include "gate.fullname" . }}-proxy {{ .Values.config.proxyPort }}:{{ .Values.proxy.service.port }} -n {{ .Release.Namespace }}
+
+  # Admin API + Dashboard
+  kubectl port-forward svc/{{ include "gate.fullname" . }}-admin {{ .Values.config.adminPort }}:{{ .Values.admin.service.port }} -n {{ .Release.Namespace }}
+
+  # Metrics
+  kubectl port-forward svc/{{ include "gate.fullname" . }}-proxy {{ .Values.config.metricsPort }}:{{ .Values.proxy.service.metricsPort }} -n {{ .Release.Namespace }}
+{{- end }}
+
+{{- if .Values.serviceMonitor.enabled }}
+
+Prometheus ServiceMonitor is enabled. Metrics will be scraped from the proxy pods.
+{{- end }}
+
+Admin API token is stored in Secret "{{ include "gate.secretName" . }}".

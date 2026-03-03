@@ -31,7 +31,7 @@
 ## 3) Policy & Traffic Shaping
 
 - [x] Rate limiting strategies (local) — in-memory fixed-window counter with lock-free DashMap + atomic CAS
-- [ ] Rate limiting strategies (distributed) — single-instance only
+- [x] Rate limiting strategies (distributed) — optional Redis backend for shared counters across instances
 - [x] Circuit breaker — per-target state machine (closed/open/half-open) in `circuit_breaker.rs`
 - [x] Retries — up to 3 retries per route on connection failure via `fail_to_connect`
 - [x] Timeout controls — per-route `timeout_ms` for connect/read/write timeouts with sensible defaults
@@ -44,10 +44,7 @@
 - [x] Header modification — X-Forwarded-* + user-configurable header rules (set/add/remove, request/response phase)
 - [x] URL rewrite / redirect — strip_prefix + upstream_path_prefix in `service.rs`
 - [ ] Request / response body transformation
-- [ ] Protocol translation (REST ↔ gRPC)
 - [x] API versioning strategy — auto-incrementing versions with lifecycle status (alpha/beta/stable/deprecated)
-- [ ] Response aggregation
-- [ ] API composition / orchestration
 
 ## 5) Observability & Monitoring
 
@@ -58,15 +55,7 @@
 - [x] Analytics dashboard — React dashboard with stats (requests, error rate, p95)
 - [ ] Alerting integration
 
-## 6) Extensibility & Plugin System
-
-- [ ] Plugin architecture
-- [ ] Custom middleware support — only built-in Axum middleware
-- [ ] Scripting support (Lua / JS / Go / WASM)
-- [ ] Third-party integrations
-- [ ] Dynamic plugin enable/disable
-
-## 7) Deployment & Configuration
+## 6) Deployment & Configuration
 
 - [ ] Declarative config (YAML / JSON) — DB-only config
 - [x] Admin API — full CRUD for routes, upstreams, targets, API keys, rate limits, services
@@ -76,33 +65,25 @@
 - [ ] Secrets management integration
 - [x] Hot reload (no downtime) — DB polling + ArcSwap atomic config swap
 
-## 8) Scalability & High Availability
+## 7) Scalability & High Availability
 
 - [ ] Clustering support
-- [ ] Distributed rate limiting
-- [ ] Shared caching layer
-- [ ] Horizontal scaling — no multi-instance coordination
+- [x] Distributed rate limiting — Redis-backed shared counters (Lua script, atomic INCR+EXPIRE)
+- [x] Shared state layer (Redis) — rate limiting + circuit breaker sync via optional Redis backend
+- [x] Horizontal scaling — multiple instances share state via Redis (fail-open on Redis errors)
 - [ ] Session affinity (sticky sessions)
 
-## 9) Kubernetes & Cloud Native
+## 8) Kubernetes & Cloud Native
 
-- [ ] Kubernetes Ingress support
-- [ ] Gateway API support
-- [ ] Helm chart
-- [ ] Operator support
-- [ ] Service mesh integration (Istio / Linkerd)
-- [ ] Cloud provider integrations
+- [x] Helm chart
 
-## 10) API Management Features
+## 9) API Management Features
 
-- [ ] Developer portal
 - [x] API catalog — services with description, tags, status, search/filter, edit UI
 - [x] API key management UI — full CRUD in React dashboard
 - [x] Usage reporting — stats endpoint + dashboard (requests/day, error rate, p95)
-- [ ] Monetization / billing
-- [ ] SLA management
 
-## 11) Protocol Support
+## 10) Protocol Support
 
 - [x] HTTP/1.1 — Pingora-based proxy
 - [x] HTTP/2 — enabled for TLS upstreams via ALPN negotiation
@@ -112,7 +93,7 @@
 - [ ] GraphQL
 - [ ] SOAP (optional legacy support)
 
-## 12) Caching & Performance
+## 11) Caching & Performance
 
 - [x] Response caching — per-route TTL-based in-memory cache via Pingora cache API
 - [ ] Cache invalidation rules
@@ -121,22 +102,11 @@
 - [x] Connection pooling — SQLx DB pooling + Pingora built-in HTTP pooling
 - [x] Keep-alive optimization — Pingora handles this transparently
 
-## 13) Developer Experience
+## 12) Developer Experience
 
-- [ ] SDK generation
-- [ ] API mocking
 - [ ] OpenAPI validation — import only, no request/response validation
 - [ ] Testing hooks
 - [x] CI/CD integration — GitHub Actions release workflow with multi-platform builds
-
-## 14) AI / LLM Gateway (Optional Modern Features)
-
-- [ ] LLM provider routing
-- [ ] Token usage tracking
-- [ ] Semantic filtering
-- [ ] Prompt logging
-- [ ] AI rate limiting
-- [ ] AI usage analytics
 
 ---
 
@@ -146,19 +116,17 @@
 |----------|:----:|:-------:|:----:|
 | 1) Traffic Management | 6 | 0 | 5 |
 | 2) Security & Access Control | 3 | 0 | 8 |
-| 3) Policy & Traffic Shaping | 5 | 0 | 2 |
-| 4) Transformation & Mediation | 3 | 0 | 4 |
+| 3) Policy & Traffic Shaping | 6 | 0 | 2 |
+| 4) Transformation & Mediation | 3 | 0 | 1 |
 | 5) Observability & Monitoring | 4 | 0 | 2 |
-| 6) Extensibility & Plugin System | 0 | 0 | 5 |
-| 7) Deployment & Configuration | 2 | 0 | 5 |
-| 8) Scalability & HA | 0 | 0 | 5 |
-| 9) Kubernetes & Cloud Native | 0 | 0 | 6 |
-| 10) API Management | 3 | 0 | 3 |
-| 11) Protocol Support | 2 | 0 | 5 |
-| 12) Caching & Performance | 4 | 0 | 2 |
-| 13) Developer Experience | 1 | 0 | 4 |
-| 14) AI / LLM Gateway | 0 | 0 | 6 |
-| **TOTAL** | **33** | **0** | **58** |
+| 6) Deployment & Configuration | 2 | 0 | 5 |
+| 7) Scalability & HA | 3 | 0 | 2 |
+| 8) Kubernetes & Cloud Native | 1 | 0 | 0 |
+| 9) API Management | 3 | 0 | 0 |
+| 10) Protocol Support | 2 | 0 | 5 |
+| 11) Caching & Performance | 4 | 0 | 2 |
+| 12) Developer Experience | 1 | 0 | 2 |
+| **TOTAL** | **38** | **0** | **34** |
 
 ### Core Strengths
 - Path-based routing with longest-prefix matching
@@ -182,3 +150,4 @@
 - Response compression (gzip/brotli/zstd via Pingora)
 - Response caching (per-route TTL, in-memory Pingora cache)
 - CI/CD with GitHub Actions multi-platform release builds
+- Helm chart with Bitnami PostgreSQL/Redis subcharts

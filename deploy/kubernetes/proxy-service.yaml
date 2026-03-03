@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: gate-proxy
+  namespace: gate
+  labels:
+    app.kubernetes.io/name: gate
+    app.kubernetes.io/component: proxy
+spec:
+  type: ClusterIP
+  ports:
+    - name: proxy
+      port: 8080
+      targetPort: proxy
+      protocol: TCP
+    - name: metrics
+      port: 9091
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: gate
+    app.kubernetes.io/component: proxy

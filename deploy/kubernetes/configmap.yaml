@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gate
+  namespace: gate
+  labels:
+    app.kubernetes.io/name: gate
+data:
+  PROXY_PORT: "8080"
+  ADMIN_PORT: "9000"
+  ADMIN_BIND_ADDR: "0.0.0.0"
+  LOG_LEVEL: "info"
+  CONFIG_POLL_INTERVAL_SECS: "5"
+  HEALTH_CHECK_INTERVAL_SECS: "10"
+  METRICS_PORT: "9091"
+  REDIS_POOL_SIZE: "8"

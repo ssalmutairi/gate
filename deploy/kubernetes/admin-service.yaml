@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: gate-admin
+  namespace: gate
+  labels:
+    app.kubernetes.io/name: gate
+    app.kubernetes.io/component: admin
+spec:
+  type: ClusterIP
+  ports:
+    - name: admin
+      port: 9000
+      targetPort: admin
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: gate
+    app.kubernetes.io/component: admin

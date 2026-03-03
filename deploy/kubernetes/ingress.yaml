@@ -1,0 +1,56 @@
+# Example Ingress — adjust hosts, TLS, and annotations for your environment
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gate-proxy
+  namespace: gate
+  labels:
+    app.kubernetes.io/name: gate
+    app.kubernetes.io/component: proxy
+  annotations:
+    # nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  # ingressClassName: nginx
+  rules:
+    - host: gateway.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: gate-proxy
+                port:
+                  name: proxy
+  # tls:
+  #   - hosts:
+  #       - gateway.example.com
+  #     secretName: gateway-tls
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gate-admin
+  namespace: gate
+  labels:
+    app.kubernetes.io/name: gate
+    app.kubernetes.io/component: admin
+  annotations:
+    # nginx.ingress.kubernetes.io/whitelist-source-range: "10.0.0.0/8"
+spec:
+  # ingressClassName: nginx
+  rules:
+    - host: gateway-admin.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: gate-admin
+                port:
+                  name: admin
+  # tls:
+  #   - hosts:
+  #       - gateway-admin.example.com
+  #     secretName: gateway-admin-tls

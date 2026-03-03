@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Helm Chart** — Full Helm chart (`charts/gate/`) with Bitnami PostgreSQL/Redis subcharts, separate proxy and admin deployments, PodDisruptionBudgets, optional Ingress, and Prometheus ServiceMonitor
+- **Plain Kubernetes Manifests** — Ready-to-use YAML manifests (`deploy/kubernetes/`) with PostgreSQL StatefulSet, optional Redis, Kustomize support, and hardened security contexts
+
+### Changed
+
+- **Features Checklist Cleanup** — Removed features that change Gate's core scope (K8s Ingress controller, plugin system, AI/LLM gateway, developer portal, SDK generation, etc.)
+
 ## [1.5.0] - 2026-03-02
 
 ### Added
