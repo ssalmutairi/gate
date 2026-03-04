@@ -1,28 +1,22 @@
-use crate::circuit_breaker::CircuitBreaker;
 use crate::lb::{self, Algorithm, ConnectionTracker};
 use crate::logging::RequestLogEntry;
 use crate::metrics;
 use crate::router::GatewayConfig;
+use crate::state::StateBackend;
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
-use dashmap::DashMap;
 use once_cell::sync::Lazy;
 use pingora::prelude::*;
 use pingora::proxy::{ProxyHttp, Session};
 use pingora_cache::MemCache;
 use sha2::{Digest, Sha256};
-use std::sync::atomic::{AtomicUsize, AtomicU64, Ordering};
+use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use uuid::Uuid;
 
 /// In-memory cache backend for response caching.
 static CACHE_BACKEND: Lazy<MemCache> = Lazy::new(MemCache::new);
-
-/// Maximum number of unique rate limiter keys before eviction is forced.
-const RATE_LIMITER_MAX_KEYS: usize = 100_000;
-/// How often (in requests) to run rate limiter cleanup.
-const RATE_LIMITER_CLEANUP_INTERVAL: u64 = 1000;
 
 /// Compute the rewritten URI path+query for an upstream request.
 ///
@@ -95,34 +89,17 @@ pub struct GatewayCtx {
     pub cache_ttl_secs: Option<i32>,
 }
 
-/// Pack a (window_id, count) pair into a single u64 for atomic CAS.
-/// High 32 bits = window_id, low 32 bits = count.
-fn pack(window_id: u32, count: u32) -> u64 {
-    ((window_id as u64) << 32) | (count as u64)
-}
-
-/// Unpack a u64 into (window_id, count).
-fn unpack(val: u64) -> (u32, u32) {
-    ((val >> 32) as u32, val as u32)
-}
-
 pub struct GatewayProxy {
     pub config: Arc<ArcSwap<GatewayConfig>>,
     pub rr_counter: AtomicUsize,
-    /// Rate limiter state: key = "{route_id}:{client_identity}", value = packed (window_id, count).
-    rate_limiters: DashMap<String, AtomicU64>,
-    /// Baseline instant for computing fixed-window IDs.
-    rate_limiter_epoch: Instant,
     /// Active connection tracker for least-connections algorithm (shared with health checker).
     pub conn_tracker: Arc<Mutex<ConnectionTracker>>,
     /// Async log sender for request logging to PostgreSQL.
     log_sender: tokio::sync::mpsc::Sender<RequestLogEntry>,
-    /// Counter for periodic rate limiter cleanup.
-    rate_limiter_ops: AtomicU64,
     /// Trusted proxy IPs/CIDRs — only trust X-Forwarded-For from these peers.
     trusted_proxies: Vec<String>,
-    /// Circuit breaker state tracker.
-    pub circuit_breaker: Arc<CircuitBreaker>,
+    /// State backend (in-memory or Redis) for rate limiting and circuit breaker.
+    pub state: Arc<StateBackend>,
 }
 
 impl GatewayProxy {
@@ -131,96 +108,15 @@ impl GatewayProxy {
         conn_tracker: Arc<Mutex<ConnectionTracker>>,
         log_sender: tokio::sync::mpsc::Sender<RequestLogEntry>,
         trusted_proxies: Vec<String>,
-        circuit_breaker: Arc<CircuitBreaker>,
+        state: Arc<StateBackend>,
     ) -> Self {
         Self {
             config,
             rr_counter: AtomicUsize::new(0),
-            rate_limiters: DashMap::new(),
-            rate_limiter_epoch: Instant::now(),
             conn_tracker,
             log_sender,
-            rate_limiter_ops: AtomicU64::new(0),
             trusted_proxies,
-            circuit_breaker,
-        }
-    }
-
-    /// Check rate limit for a given route and client identity.
-    /// Uses a fixed-window counter with atomic CAS — no global lock.
-    /// Returns Ok(remaining) or Err(retry_after_secs).
-    fn check_rate_limit(
-        &self,
-        route_id: &Uuid,
-        client_identity: &str,
-        requests_per_second: i32,
-    ) -> Result<i32, u64> {
-        let key = format!("{}:{}", route_id, client_identity);
-        let current_window = self.rate_limiter_epoch.elapsed().as_secs() as u32;
-        let limit = requests_per_second as u32;
-
-        // Periodic cleanup: evict stale entries (per-shard locks, not global)
-        let ops = self.rate_limiter_ops.fetch_add(1, Ordering::Relaxed);
-        if ops.is_multiple_of(RATE_LIMITER_CLEANUP_INTERVAL) || self.rate_limiters.len() > RATE_LIMITER_MAX_KEYS {
-            self.rate_limiters.retain(|_, v| {
-                let (win, _) = unpack(v.load(Ordering::Relaxed));
-                win >= current_window.saturating_sub(1)
-            });
-        }
-
-        // Fast path: entry already exists
-        if let Some(entry) = self.rate_limiters.get(&key) {
-            return self.cas_increment(&entry, current_window, limit);
-        }
-
-        // Slow path: insert new entry
-        let entry = self
-            .rate_limiters
-            .entry(key)
-            .or_insert_with(|| AtomicU64::new(0));
-        self.cas_increment(&entry, current_window, limit)
-    }
-
-    /// Atomically increment the counter for the current window via CAS loop.
-    /// Returns Ok(remaining) or Err(retry_after_secs).
-    fn cas_increment(
-        &self,
-        counter: &AtomicU64,
-        current_window: u32,
-        limit: u32,
-    ) -> Result<i32, u64> {
-        loop {
-            let current = counter.load(Ordering::Acquire);
-            let (win, count) = unpack(current);
-
-            if win != current_window {
-                // Window expired — reset to count=1
-                let new_val = pack(current_window, 1);
-                match counter.compare_exchange_weak(
-                    current,
-                    new_val,
-                    Ordering::AcqRel,
-                    Ordering::Acquire,
-                ) {
-                    Ok(_) => return Ok(limit as i32 - 1),
-                    Err(_) => continue, // Retry CAS
-                }
-            } else if count >= limit {
-                // Over limit
-                return Err(1);
-            } else {
-                // Under limit — increment
-                let new_val = pack(current_window, count + 1);
-                match counter.compare_exchange_weak(
-                    current,
-                    new_val,
-                    Ordering::AcqRel,
-                    Ordering::Acquire,
-                ) {
-                    Ok(_) => return Ok(limit as i32 - (count + 1) as i32),
-                    Err(_) => continue, // Retry CAS
-                }
-            }
+            state,
         }
     }
 }
@@ -390,11 +286,11 @@ impl ProxyHttp for GatewayProxy {
                 _ => self.get_client_ip(session),
             };
 
-            match self.check_rate_limit(
+            match self.state.check_rate_limit(
                 &route_id,
                 &client_id,
                 rate_limit.requests_per_second,
-            ) {
+            ).await {
                 Ok(remaining) => {
                     // Add rate limit headers (will be set in response_filter)
                     ctx.client_identity
@@ -451,7 +347,7 @@ impl ProxyHttp for GatewayProxy {
         // Filter out circuit-broken targets
         let available: Vec<&shared::models::Target> = healthy
             .into_iter()
-            .filter(|t| self.circuit_breaker.is_available(&t.id))
+            .filter(|t| self.state.circuit_breaker().is_available(&t.id))
             .collect();
 
         if available.is_empty() {
@@ -654,7 +550,7 @@ impl ProxyHttp for GatewayProxy {
     ) -> Box<pingora::Error> {
         // Record circuit breaker failure
         if let Some(target_id) = ctx.target_id {
-            let tripped = self.circuit_breaker.record_failure(&target_id);
+            let tripped = self.state.record_cb_failure(&target_id);
             if tripped {
                 metrics::CIRCUIT_BREAKER_TRIPS
                     .with_label_values(&[
@@ -702,7 +598,7 @@ impl ProxyHttp for GatewayProxy {
         if let Some(target_id) = ctx.target_id {
             let status = upstream_response.status.as_u16();
             if status >= 500 {
-                let tripped = self.circuit_breaker.record_failure(&target_id);
+                let tripped = self.state.record_cb_failure(&target_id);
                 if tripped {
                     metrics::CIRCUIT_BREAKER_TRIPS
                         .with_label_values(&[
@@ -712,7 +608,7 @@ impl ProxyHttp for GatewayProxy {
                         .inc();
                 }
             } else {
-                self.circuit_breaker.record_success(&target_id);
+                self.state.record_cb_success(&target_id);
             }
         }
 
@@ -849,18 +745,20 @@ mod tests {
     use crate::circuit_breaker::CircuitBreaker;
     use crate::lb::ConnectionTracker;
     use crate::router::GatewayConfig;
+    use crate::state::MemoryState;
     use arc_swap::ArcSwap;
-    use sqlx::postgres::PgPoolOptions;
-
     fn make_test_proxy() -> GatewayProxy {
         let config = GatewayConfig::new(vec![], vec![], vec![], vec![], vec![], vec![], vec![]);
         let (tx, _rx) = tokio::sync::mpsc::channel(100);
+        let state = Arc::new(StateBackend::Memory(
+            MemoryState::new(Arc::new(CircuitBreaker::new())),
+        ));
         GatewayProxy::new(
             Arc::new(ArcSwap::from_pointee(config)),
             Arc::new(Mutex::new(ConnectionTracker::new())),
             tx,
             vec![],
-            Arc::new(CircuitBreaker::new()),
+            state,
         )
     }
 
@@ -869,7 +767,7 @@ mod tests {
         let proxy = make_test_proxy();
         let route_id = Uuid::new_v4();
 
-        let result = proxy.check_rate_limit(&route_id, "client1", 10);
+        let result = proxy.state.check_rate_limit(&route_id, "client1", 10).await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 9); // 10 - 1 = 9 remaining
     }
@@ -880,15 +778,15 @@ mod tests {
         let route_id = Uuid::new_v4();
 
         // 2 rps limit — third request should be blocked
-        let r1 = proxy.check_rate_limit(&route_id, "client1", 2);
+        let r1 = proxy.state.check_rate_limit(&route_id, "client1", 2).await;
         assert!(r1.is_ok());
         assert_eq!(r1.unwrap(), 1);
 
-        let r2 = proxy.check_rate_limit(&route_id, "client1", 2);
+        let r2 = proxy.state.check_rate_limit(&route_id, "client1", 2).await;
         assert!(r2.is_ok());
         assert_eq!(r2.unwrap(), 0);
 
-        let r3 = proxy.check_rate_limit(&route_id, "client1", 2);
+        let r3 = proxy.state.check_rate_limit(&route_id, "client1", 2).await;
         assert!(r3.is_err());
     }
 
@@ -898,8 +796,8 @@ mod tests {
         let route_id = Uuid::new_v4();
 
         // 1 rps limit, different clients should be independent
-        let r1 = proxy.check_rate_limit(&route_id, "client1", 1);
-        let r2 = proxy.check_rate_limit(&route_id, "client2", 1);
+        let r1 = proxy.state.check_rate_limit(&route_id, "client1", 1).await;
+        let r2 = proxy.state.check_rate_limit(&route_id, "client2", 1).await;
         assert!(r1.is_ok());
         assert!(r2.is_ok());
     }
@@ -911,8 +809,8 @@ mod tests {
         let route2 = Uuid::new_v4();
 
         // 1 rps limit, different routes should be independent
-        let r1 = proxy.check_rate_limit(&route1, "client1", 1);
-        let r2 = proxy.check_rate_limit(&route2, "client1", 1);
+        let r1 = proxy.state.check_rate_limit(&route1, "client1", 1).await;
+        let r2 = proxy.state.check_rate_limit(&route2, "client1", 1).await;
         assert!(r1.is_ok());
         assert!(r2.is_ok());
     }
@@ -923,8 +821,8 @@ mod tests {
         let route_id = Uuid::new_v4();
 
         // 1 rps limit
-        let _ = proxy.check_rate_limit(&route_id, "client1", 1);
-        let result = proxy.check_rate_limit(&route_id, "client1", 1);
+        let _ = proxy.state.check_rate_limit(&route_id, "client1", 1).await;
+        let result = proxy.state.check_rate_limit(&route_id, "client1", 1).await;
         assert!(result.is_err());
         let retry_after = result.unwrap_err();
         assert!(retry_after >= 1); // at least 1 second
@@ -958,54 +856,24 @@ mod tests {
         );
     }
 
-    // --- Rate limiter eviction ---
+    // --- Rate limiting (via state backend) ---
 
     #[tokio::test]
-    async fn rate_limiter_eviction_on_cleanup_interval() {
-        let proxy = make_test_proxy();
-        let route_id = Uuid::new_v4();
-
-        // Fill up entries to trigger periodic cleanup (every RATE_LIMITER_CLEANUP_INTERVAL ops)
-        // Use many different clients to create many map keys
-        for i in 0..RATE_LIMITER_CLEANUP_INTERVAL {
-            let client = format!("client-{}", i);
-            let _ = proxy.check_rate_limit(&route_id, &client, 1000);
-        }
-
-        // After RATE_LIMITER_CLEANUP_INTERVAL ops, cleanup should have run
-        // All entries are still within the current window, so nothing evicted yet
-        assert!(proxy.rate_limiters.len() <= RATE_LIMITER_CLEANUP_INTERVAL as usize);
-    }
-
-    #[tokio::test]
-    async fn rate_limiter_different_routes_isolated() {
+    async fn rate_limit_different_routes_isolated() {
         let proxy = make_test_proxy();
         let route1 = Uuid::new_v4();
         let route2 = Uuid::new_v4();
 
         // Fill route1 to limit
-        let _ = proxy.check_rate_limit(&route1, "client", 1);
-        assert!(proxy.check_rate_limit(&route1, "client", 1).is_err());
+        let _ = proxy.state.check_rate_limit(&route1, "client", 1).await;
+        assert!(proxy.state.check_rate_limit(&route1, "client", 1).await.is_err());
 
         // route2 should still work
-        assert!(proxy.check_rate_limit(&route2, "client", 1).is_ok());
+        assert!(proxy.state.check_rate_limit(&route2, "client", 1).await.is_ok());
     }
 
     #[tokio::test]
-    async fn rate_limiter_ops_counter_increments() {
-        let proxy = make_test_proxy();
-        let route_id = Uuid::new_v4();
-
-        let _ = proxy.check_rate_limit(&route_id, "client1", 100);
-        let _ = proxy.check_rate_limit(&route_id, "client2", 100);
-        let _ = proxy.check_rate_limit(&route_id, "client3", 100);
-
-        let ops = proxy.rate_limiter_ops.load(Ordering::Relaxed);
-        assert_eq!(ops, 3);
-    }
-
-    #[tokio::test]
-    async fn rate_limiter_concurrent_access() {
+    async fn rate_limit_concurrent_access() {
         let proxy = Arc::new(make_test_proxy());
         let route_id = Uuid::new_v4();
         let limit = 1000i32;
@@ -1016,7 +884,7 @@ mod tests {
             let proxy = Arc::clone(&proxy);
             let rid = route_id;
             handles.push(tokio::spawn(async move {
-                proxy.check_rate_limit(&rid, "client", limit)
+                proxy.state.check_rate_limit(&rid, "client", limit).await
             }));
         }
 
@@ -1040,12 +908,15 @@ mod tests {
     async fn proxy_new_stores_trusted_proxies() {
         let config = GatewayConfig::new(vec![], vec![], vec![], vec![], vec![], vec![], vec![]);
         let (tx, _rx) = tokio::sync::mpsc::channel(100);
+        let state = Arc::new(StateBackend::Memory(
+            MemoryState::new(Arc::new(CircuitBreaker::new())),
+        ));
         let proxy = GatewayProxy::new(
             Arc::new(ArcSwap::from_pointee(config)),
             Arc::new(Mutex::new(ConnectionTracker::new())),
             tx,
             vec!["10.0.0.1".to_string(), "172.16.0.1".to_string()],
-            Arc::new(CircuitBreaker::new()),
+            state,
         );
         assert_eq!(proxy.trusted_proxies.len(), 2);
         assert_eq!(proxy.trusted_proxies[0], "10.0.0.1");

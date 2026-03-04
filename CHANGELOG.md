@@ -9,12 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Redis State Backend** — Optional Redis-backed distributed rate limiting and circuit breaker sync for multi-instance deployments (`--features redis-backend`), with automatic fail-open on Redis errors
+- **State Backend Abstraction** — Unified `StateBackend` enum dispatching to in-memory or Redis backends, configurable via `REDIS_URL` environment variable
+- **Circuit Breaker Sync** — Cross-instance circuit breaker state synchronization via Redis with 2-second polling and 60s TTL auto-expiry
 - **Helm Chart** — Full Helm chart (`charts/gate/`) with Bitnami PostgreSQL/Redis subcharts, separate proxy and admin deployments, PodDisruptionBudgets, optional Ingress, and Prometheus ServiceMonitor
-- **Plain Kubernetes Manifests** — Ready-to-use YAML manifests (`deploy/kubernetes/`) with PostgreSQL StatefulSet, optional Redis, Kustomize support, and hardened security contexts
+- **Plain Kubernetes Manifests** — Ready-to-use YAML manifests (`deploy/kubernetes/`) with PostgreSQL StatefulSet, Redis, Kustomize support, and hardened security contexts
+- **Kubernetes Ingress** — Nginx ingress with cert-manager TLS for proxy (`gate.k8s.lab`) and admin (`gate-admin.k8s.lab`)
+- **Redis Metrics** — Prometheus counters for Redis errors by operation (`rate_limit`, `cb_publish`, `cb_sync`) and state backend gauge
 
 ### Changed
 
+- **Image Registry** — Kubernetes manifests now use `registry.lab/apps/gate` as the container image registry
+- **Circuit Breaker API** — `record_success()` now returns `bool` indicating HalfOpen→Closed transition; Redis publish only fires on actual state transitions (eliminates write amplification)
+- **Circuit Breaker State Serialization** — Added `Display`/`FromStr` impls to `State` enum, replacing raw string matching in Redis publish/sync
+- **Rate Limiter Optimization** — Removed double DashMap lookup (get then entry) in favor of single `entry().or_insert_with()` call
+- **Redis CB Sync** — Uses `SCAN` + `MGET` instead of `KEYS` + N individual `GET` calls (fixes N+1 and Redis blocking)
 - **Features Checklist Cleanup** — Removed features that change Gate's core scope (K8s Ingress controller, plugin system, AI/LLM gateway, developer portal, SDK generation, etc.)
+
+### Fixed
+
+- **Redis Pool Size** — `REDIS_POOL_SIZE` config is now actually applied to the deadpool-redis pool builder (was parsed and logged but ignored)
 
 ## [1.5.0] - 2026-03-02
 

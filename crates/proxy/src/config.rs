@@ -118,7 +118,7 @@ pub fn spawn_config_reloader(
     database_url: String,
     config: Arc<ArcSwap<GatewayConfig>>,
     interval_secs: u64,
-    circuit_breaker: Arc<crate::circuit_breaker::CircuitBreaker>,
+    state: Arc<crate::state::StateBackend>,
 ) {
     std::thread::spawn(move || {
         let rt = tokio::runtime::Builder::new_current_thread()
@@ -187,7 +187,7 @@ pub fn spawn_config_reloader(
                             }
                         }
                     }
-                    circuit_breaker.rebuild(&cb_configs);
+                    state.circuit_breaker().rebuild(&cb_configs);
 
                     config.store(Arc::new(new_config));
                     last_updated = current_max;
@@ -201,9 +201,14 @@ pub fn spawn_config_reloader(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    /// Serialize DB tests to avoid parallel TRUNCATE/INSERT races on shared tables.
+    static DB_LOCK: Mutex<()> = Mutex::new(());
 
     #[tokio::test]
     async fn load_config_empty_db() {
+        let _lock = DB_LOCK.lock().unwrap();
         let pool = setup_test_pool().await;
         let config = load_config(&pool).await;
         assert!(config.routes.is_empty());
@@ -216,6 +221,7 @@ mod tests {
 
     #[tokio::test]
     async fn load_config_with_data() {
+        let _lock = DB_LOCK.lock().unwrap();
         let pool = setup_test_pool().await;
 
         // Insert upstream
@@ -239,6 +245,7 @@ mod tests {
 
     #[tokio::test]
     async fn load_config_skips_inactive() {
+        let _lock = DB_LOCK.lock().unwrap();
         let pool = setup_test_pool().await;
 
         // Active upstream
@@ -266,6 +273,7 @@ mod tests {
 
     #[tokio::test]
     async fn load_config_loads_api_keys_and_rate_limits() {
+        let _lock = DB_LOCK.lock().unwrap();
         let pool = setup_test_pool().await;
 
         // Insert upstream and route

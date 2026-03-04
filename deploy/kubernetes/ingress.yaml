@@ -1,18 +1,18 @@
-# Example Ingress — adjust hosts, TLS, and annotations for your environment
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: gate-proxy
+  name: gate-proxy-ingress
   namespace: gate
   labels:
     app.kubernetes.io/name: gate
     app.kubernetes.io/component: proxy
   annotations:
-    # nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: k8s-sub-ca
+    nginx.ingress.kubernetes.io/rewrite-target: /
 spec:
-  # ingressClassName: nginx
+  ingressClassName: nginx
   rules:
-    - host: gateway.example.com
+    - host: gate.k8s.lab
       http:
         paths:
           - path: /
@@ -22,25 +22,26 @@ spec:
                 name: gate-proxy
                 port:
                   name: proxy
-  # tls:
-  #   - hosts:
-  #       - gateway.example.com
-  #     secretName: gateway-tls
+  tls:
+    - hosts:
+        - gate.k8s.lab
+      secretName: gate-lab-tls
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: gate-admin
+  name: gate-admin-ingress
   namespace: gate
   labels:
     app.kubernetes.io/name: gate
     app.kubernetes.io/component: admin
   annotations:
-    # nginx.ingress.kubernetes.io/whitelist-source-range: "10.0.0.0/8"
+    cert-manager.io/cluster-issuer: k8s-sub-ca
+    nginx.ingress.kubernetes.io/rewrite-target: /
 spec:
-  # ingressClassName: nginx
+  ingressClassName: nginx
   rules:
-    - host: gateway-admin.example.com
+    - host: gate-admin.k8s.lab
       http:
         paths:
           - path: /
@@ -50,7 +51,7 @@ spec:
                 name: gate-admin
                 port:
                   name: admin
-  # tls:
-  #   - hosts:
-  #       - gateway-admin.example.com
-  #     secretName: gateway-admin-tls
+  tls:
+    - hosts:
+        - gate-admin.k8s.lab
+      secretName: gate-admin-lab-tls

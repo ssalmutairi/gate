@@ -13,6 +13,11 @@ pub struct AppConfig {
     /// Comma-separated list of trusted proxy CIDRs for X-Forwarded-For (e.g. "10.0.0.0/8,172.16.0.0/12").
     /// If empty, X-Forwarded-For is never trusted — peer IP is always used.
     pub trusted_proxies: Vec<String>,
+    /// Redis URL for distributed state (rate limiting, circuit breaker sync).
+    /// If None, in-memory state is used (single-instance mode).
+    pub redis_url: Option<String>,
+    /// Redis connection pool size (default: 8).
+    pub redis_pool_size: usize,
 }
 
 impl AppConfig {
@@ -55,6 +60,11 @@ impl AppConfig {
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
                 .collect(),
+            redis_url: std::env::var("REDIS_URL").ok().filter(|s| !s.is_empty()),
+            redis_pool_size: std::env::var("REDIS_POOL_SIZE")
+                .unwrap_or_else(|_| "8".into())
+                .parse()
+                .expect("REDIS_POOL_SIZE must be a number"),
         }
     }
 }
@@ -77,7 +87,7 @@ mod tests {
             "DATABASE_URL", "PROXY_PORT", "ADMIN_PORT", "ADMIN_BIND_ADDR",
             "ADMIN_TOKEN", "LOG_LEVEL", "CONFIG_POLL_INTERVAL_SECS",
             "HEALTH_CHECK_INTERVAL_SECS", "HEALTH_CHECK_PATH", "METRICS_PORT",
-            "TRUSTED_PROXIES",
+            "TRUSTED_PROXIES", "REDIS_URL", "REDIS_POOL_SIZE",
         ] {
             std::env::remove_var(key);
         }
@@ -104,6 +114,8 @@ mod tests {
         assert!(config.health_check_interval_secs > 0);
         assert!(!config.health_check_path.is_empty());
         assert!(config.metrics_port > 0);
+        assert!(config.redis_url.is_none());
+        assert_eq!(config.redis_pool_size, 8);
     }
 
     #[test]
@@ -121,6 +133,8 @@ mod tests {
         std::env::set_var("HEALTH_CHECK_PATH", "/ping");
         std::env::set_var("METRICS_PORT", "3000");
         std::env::set_var("TRUSTED_PROXIES", "10.0.0.0/8,172.16.0.0/12");
+        std::env::set_var("REDIS_URL", "redis://localhost:6379");
+        std::env::set_var("REDIS_POOL_SIZE", "16");
 
         let config = super::AppConfig::from_env();
         assert_eq!(config.proxy_port, 9090);
@@ -133,6 +147,8 @@ mod tests {
         assert_eq!(config.health_check_path, "/ping");
         assert_eq!(config.metrics_port, 3000);
         assert_eq!(config.trusted_proxies, vec!["10.0.0.0/8", "172.16.0.0/12"]);
+        assert_eq!(config.redis_url.as_deref(), Some("redis://localhost:6379"));
+        assert_eq!(config.redis_pool_size, 16);
     }
 
     #[test]

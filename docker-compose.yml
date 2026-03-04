@@ -17,6 +17,20 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    networks:
+      - gate
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   gateway:
     build: .
     networks:
@@ -35,8 +49,12 @@ services:
       CONFIG_POLL_INTERVAL_SECS: ${CONFIG_POLL_INTERVAL_SECS:-5}
       HEALTH_CHECK_INTERVAL_SECS: ${HEALTH_CHECK_INTERVAL_SECS:-10}
       METRICS_PORT: 9091
+      REDIS_URL: ${REDIS_URL:-}
+      REDIS_POOL_SIZE: ${REDIS_POOL_SIZE:-8}
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     restart: unless-stopped
 
@@ -74,3 +92,4 @@ networks:
 
 volumes:
   pgdata:
+  redisdata:

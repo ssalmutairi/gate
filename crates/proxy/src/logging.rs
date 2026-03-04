@@ -130,6 +130,10 @@ pub(crate) async fn flush_batch(pool: &PgPool, buffer: &mut Vec<RequestLogEntry>
 mod tests {
     use super::*;
     use sqlx::postgres::PgPoolOptions;
+    use std::sync::Mutex;
+
+    /// Serialize DB tests to avoid parallel TRUNCATE races on request_logs.
+    static DB_LOCK: Mutex<()> = Mutex::new(());
 
     async fn setup_test_pool() -> PgPool {
         let url = std::env::var("TEST_DATABASE_URL")
@@ -181,6 +185,7 @@ mod tests {
 
     #[tokio::test]
     async fn flush_batch_inserts_rows() {
+        let _lock = DB_LOCK.lock().unwrap();
         let pool = setup_test_pool().await;
         let mut buffer = vec![make_entry("GET", "/test", 200)];
         flush_batch(&pool, &mut buffer).await;
@@ -193,6 +198,7 @@ mod tests {
 
     #[tokio::test]
     async fn flush_batch_multiple_entries() {
+        let _lock = DB_LOCK.lock().unwrap();
         let pool = setup_test_pool().await;
         let mut buffer = vec![
             make_entry("GET", "/a", 200),
@@ -209,6 +215,7 @@ mod tests {
 
     #[tokio::test]
     async fn batch_writer_flushes_on_channel_close() {
+        let _lock = DB_LOCK.lock().unwrap();
         let pool = setup_test_pool().await;
         let (tx, rx) = mpsc::channel(100);
 
@@ -227,6 +234,7 @@ mod tests {
 
     #[tokio::test]
     async fn batch_writer_empty_channel_exits() {
+        let _lock = DB_LOCK.lock().unwrap();
         let pool = setup_test_pool().await;
         let (_tx, rx) = mpsc::channel::<RequestLogEntry>(100);
 

@@ -18,7 +18,7 @@ COPY crates/ crates/
 COPY migrations/ migrations/
 COPY --from=dashboard-builder /app/dashboard/dist dashboard/dist
 
-RUN cargo build --release --bin proxy --bin admin
+RUN cargo build --release --bin proxy --bin admin --features redis-backend
 
 # Stage 3: Runtime
 FROM debian:bookworm-slim

@@ -35,3 +35,9 @@ subtle = "2"
 ipnet = "2"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 rustls = { version = "0.23", features = ["ring"] }
+redis = { version = "0.27", features = ["tokio-comp"], optional = true }
+deadpool-redis = { version = "0.18", optional = true }
+
+[features]
+default = []
+redis-backend = ["redis", "deadpool-redis"]

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt;
 use std::sync::RwLock;
 use std::time::{Duration, Instant};
 use uuid::Uuid;
@@ -8,6 +9,28 @@ pub enum State {
     Closed,
     Open,
     HalfOpen,
+}
+
+impl fmt::Display for State {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            State::Closed => write!(f, "closed"),
+            State::Open => write!(f, "open"),
+            State::HalfOpen => write!(f, "half_open"),
+        }
+    }
+}
+
+impl std::str::FromStr for State {
+    type Err = ();
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "closed" => Ok(State::Closed),
+            "open" => Ok(State::Open),
+            "half_open" => Ok(State::HalfOpen),
+            _ => Err(()),
+        }
+    }
 }
 
 struct TargetState {
@@ -66,11 +89,11 @@ impl CircuitBreaker {
         }
     }
 
-    /// Record a successful request to a target.
-    pub fn record_success(&self, target_id: &Uuid) {
+    /// Record a successful request to a target. Returns true if the circuit transitioned from HalfOpen → Closed.
+    pub fn record_success(&self, target_id: &Uuid) -> bool {
         let mut targets = self.targets.write().unwrap_or_else(|e| e.into_inner());
         let Some(ts) = targets.get_mut(target_id) else {
-            return;
+            return false;
         };
 
         match ts.state {
@@ -79,12 +102,15 @@ impl CircuitBreaker {
                 ts.state = State::Closed;
                 ts.consecutive_failures = 0;
                 ts.last_failure = None;
+                true
             }
             State::Closed => {
                 ts.consecutive_failures = 0;
+                false
             }
             State::Open => {
                 // Shouldn't happen (requests blocked in Open), but reset anyway
+                false
             }
         }
     }
@@ -113,6 +139,27 @@ impl CircuitBreaker {
                 true
             }
             State::Open => false,
+        }
+    }
+
+    /// Force a target's circuit breaker to a specific state (used for cross-instance sync via Redis).
+    #[allow(dead_code)]
+    pub fn set_state(&self, target_id: &Uuid, new_state: State) {
+        let mut targets = self.targets.write().unwrap_or_else(|e| e.into_inner());
+        if let Some(ts) = targets.get_mut(target_id) {
+            if ts.state != new_state {
+                tracing::debug!(
+                    target_id = %target_id,
+                    old_state = ?ts.state,
+                    new_state = ?new_state,
+                    "Circuit breaker state synced from Redis"
+                );
+                ts.state = new_state;
+                if new_state == State::Closed {
+                    ts.consecutive_failures = 0;
+                    ts.last_failure = None;
+                }
+            }
         }
     }
 

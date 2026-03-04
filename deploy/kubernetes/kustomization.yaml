@@ -14,11 +14,9 @@ resources:
   - proxy-service.yaml
   - admin-deployment.yaml
   - admin-service.yaml
-  # Uncomment to enable Redis (also uncomment REDIS_URL in secret.yaml)
-  # - redis-deployment.yaml
-  # - redis-service.yaml
-  # Uncomment to enable Ingress
-  # - ingress.yaml
+  - redis-deployment.yaml
+  - redis-service.yaml
+  - ingress.yaml
 
 commonLabels:
   app.kubernetes.io/part-of: gate

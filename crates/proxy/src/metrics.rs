@@ -94,6 +94,25 @@ pub static UPSTREAM_HEALTH: Lazy<GaugeVec> = Lazy::new(|| {
     .unwrap()
 });
 
+// State backend type gauge (1 = Redis, 0 = in-memory)
+pub static STATE_BACKEND_REDIS: Lazy<Gauge> = Lazy::new(|| {
+    prometheus::register_gauge!(
+        "gateway_state_backend_redis",
+        "State backend type (1=Redis, 0=in-memory)"
+    )
+    .unwrap()
+});
+
+// Redis error counter
+pub static REDIS_ERRORS_TOTAL: Lazy<CounterVec> = Lazy::new(|| {
+    register_counter_vec!(
+        "gateway_redis_errors_total",
+        "Total Redis operation errors",
+        &["operation"]
+    )
+    .unwrap()
+});
+
 /// Initialize all metrics (forces lazy statics to register).
 pub fn init() {
     Lazy::force(&REQUESTS_TOTAL);
@@ -105,6 +124,8 @@ pub fn init() {
     Lazy::force(&CIRCUIT_BREAKER_TRIPS);
     Lazy::force(&ACTIVE_CONNECTIONS);
     Lazy::force(&UPSTREAM_HEALTH);
+    Lazy::force(&STATE_BACKEND_REDIS);
+    Lazy::force(&REDIS_ERRORS_TOTAL);
 }
 
 /// Encode all metrics as Prometheus text format.
@@ -161,6 +182,10 @@ mod tests {
         CIRCUIT_BREAKER_TRIPS
             .with_label_values(&["test_up", "test_tgt"])
             .inc();
+        STATE_BACKEND_REDIS.set(0.0);
+        REDIS_ERRORS_TOTAL
+            .with_label_values(&["test_op"])
+            .inc();
 
         let output = encode_metrics();
         assert!(output.contains("gateway_requests_total"));
@@ -172,6 +197,8 @@ mod tests {
         assert!(output.contains("gateway_upstream_health"));
         assert!(output.contains("gateway_retries_total"));
         assert!(output.contains("gateway_circuit_breaker_trips_total"));
+        assert!(output.contains("gateway_state_backend_redis"));
+        assert!(output.contains("gateway_redis_errors_total"));
     }
 
     #[test]
