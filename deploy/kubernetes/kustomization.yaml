@@ -18,5 +18,7 @@ resources:
   - redis-service.yaml
   - ingress.yaml
 
-commonLabels:
-  app.kubernetes.io/part-of: gate
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: gate
+    includeSelectors: true
