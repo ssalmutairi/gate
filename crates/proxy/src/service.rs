@@ -270,7 +270,15 @@ impl ProxyHttp for GatewayProxy {
                 .get("authorization")
                 .and_then(|v| v.to_str().ok())
                 .and_then(|s| s.strip_prefix("Bearer "))
-                .map(|s| s.to_string());
+                .map(|s| s.to_string())
+                .or_else(|| {
+                    session
+                        .req_header()
+                        .headers
+                        .get("x-api-key")
+                        .and_then(|v| v.to_str().ok())
+                        .map(|s| s.to_string())
+                });
 
             match key_header {
                 None => {
@@ -592,6 +600,9 @@ impl ProxyHttp for GatewayProxy {
             upstream_request
                 .insert_header("Transfer-Encoding", "chunked")
                 .unwrap();
+            // Remove Accept-Encoding so upstream returns plain XML (not compressed).
+            // The response body filter needs to parse XML for SOAP→JSON conversion.
+            upstream_request.remove_header("Accept-Encoding");
         }
 
         // Security: set forwarded headers

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-03-05
+
+### Fixed
+
+- **Missing SOAP Migration** — Added `014_add_soap_support.sql` to the migration runner; WSDL imports were failing with "column service_type does not exist" because the migration file was not registered in `db.rs`
+- **SOAP Proxy Content Encoding** — Strip `Accept-Encoding` header on SOAP upstream requests so the response arrives as plain XML; compressed responses caused `ERR_CONTENT_DECODING_FAILED` in the browser because the SOAP→JSON body filter cannot parse brotli/gzip-encoded XML
+- **X-Api-Key Header Support** — Proxy now accepts API keys via `X-Api-Key` header in addition to `Authorization: Bearer`, matching the dashboard's Try It panel which sends keys as `X-Api-Key`
+
 ## [1.6.0] - 2026-03-05
 
 ### Added

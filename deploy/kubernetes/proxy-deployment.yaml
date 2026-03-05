@@ -27,7 +27,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: proxy
-          image: registry.lab/apps/gate:1.6.0
+          image: registry.lab/apps/gate:1.6.1
           command: ["/usr/local/bin/gate-proxy"]
           securityContext:
             allowPrivilegeEscalation: false
