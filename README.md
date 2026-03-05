@@ -5,10 +5,11 @@
 <h1 align="center">Gate</h1>
 
 <p align="center">
-  A high-performance API gateway built with Rust, featuring dynamic routing, load balancing, authentication, rate limiting, and an embedded React dashboard.
+  A high-performance API gateway built with Rust, featuring dynamic routing, load balancing, authentication, rate limiting, SOAP/WSDL support, and an embedded React dashboard.
 </p>
 
 <p align="center">
+  <img src="https://img.shields.io/badge/version-1.6.0-blue" alt="Version" />
   <img src="https://img.shields.io/badge/coverage-92%25-brightgreen" alt="Coverage" />
   <img src="https://img.shields.io/badge/tests-196%20passed-brightgreen" alt="Tests" />
   <img src="https://img.shields.io/badge/rust-1.93-orange" alt="Rust" />
@@ -30,16 +31,77 @@
 
 - **Dynamic Routing** - Configure routes via admin API, changes apply without restart
 - **Load Balancing** - Round robin, weighted round robin, and least connections
+- **SOAP/WSDL Support** - Import WSDL services and proxy them as JSON APIs with automatic JSON-to-SOAP and SOAP-to-JSON translation
 - **API Key Auth** - SHA-256 hashed keys with scoping, expiry, and revocation
 - **Rate Limiting** - Per-route sliding window rate limits by IP or API key
 - **Health Checks** - Automatic upstream target health monitoring
 - **Hot Reload** - Config changes polled from DB every N seconds
 - **Prometheus Metrics** - Request counters, latency histograms, health gauges
-- **Request Logging** - Async batched logging to PostgreSQL
+- **Request Logging** - Async batched logging to PostgreSQL or Elastic APM
+- **Circuit Breaker** - Per-target failure tracking with configurable thresholds, half-open recovery, and optional Redis sync
 - **Embedded Dashboard** - React UI compiled into the admin binary, served on the same port
 - **OpenAPI Schema Viewer** - Resolved request/response schemas with interactive "Try It" panel for testing endpoints directly from the dashboard
+- **Service Import** - Import OpenAPI/Swagger specs or WSDL files via URL, file upload, or paste
+- **Redis State Backend** - Optional distributed rate limiting and circuit breaker sync for multi-instance deployments
+- **Kubernetes Ready** - Helm chart and plain YAML manifests with PostgreSQL and Redis
 - **Cross-Platform Binaries** - Precompiled releases for Linux and macOS (x86_64 + aarch64)
 - **Docker Compose** - One-command deployment of the full stack
+
+## SOAP/WSDL Support
+
+Gate can act as a JSON-to-SOAP gateway. Import any WSDL service and clients interact with it using plain JSON — Gate handles the XML translation transparently.
+
+### How It Works
+
+1. **Import a WSDL** via the dashboard or admin API
+2. Gate parses the WSDL, extracts all operations, and creates a route per operation
+3. Clients send JSON `POST` requests to `/service-name/OperationName`
+4. Gate converts the JSON body to a SOAP XML envelope with the correct SOAPAction header
+5. The SOAP XML response is converted back to JSON and returned to the client
+
+### Example
+
+```bash
+# Import a WSDL service
+curl -X POST http://localhost:9000/admin/services/import \
+  -H "Content-Type: application/json" \
+  -H "X-Admin-Token: changeme" \
+  -d '{"url": "http://www.dneonline.com/calculator.asmx?WSDL", "namespace": "Calculator"}'
+
+# Call a SOAP operation with JSON (after config reload)
+curl -X POST http://localhost:8080/calculator/Add \
+  -H "Content-Type: application/json" \
+  -d '{"intA": 5, "intB": 3}'
+
+# Response (JSON):
+# {"AddResult": 8}
+```
+
+### Supported WSDL Features
+
+- WSDL 1.1 documents
+- Multiple operations per service
+- Automatic SOAPAction header injection
+- JSON request/response body translation
+- SOAP fault handling with error body capture
+
+## Elastic APM Integration
+
+Gate can send request logs to Elastic APM instead of PostgreSQL, offloading log storage to a purpose-built observability system.
+
+### Configuration
+
+```bash
+ELASTIC_APM_ENABLED=true
+ELASTIC_APM_URL=http://localhost:8200
+ELASTIC_APM_TOKEN=your-secret-token  # optional
+```
+
+When enabled, PostgreSQL request logging is disabled entirely. Gate sends NDJSON batches to the APM Intake V2 API with:
+
+- **Transaction events** for every request (method, path, status, latency, upstream target)
+- **Error events** for failed requests (status >= 400) with upstream response body (up to 4 KB)
+- HTML error pages are automatically stripped to plain text for readability in Kibana
 
 ## Quick Start
 
@@ -52,7 +114,7 @@ curl -fsSL https://raw.githubusercontent.com/ssalmutairi/gate/main/install.sh | 
 Or download a specific version:
 
 ```bash
-VERSION=v1.3.0 curl -fsSL https://raw.githubusercontent.com/ssalmutairi/gate/main/install.sh | bash
+VERSION=v1.6.0 curl -fsSL https://raw.githubusercontent.com/ssalmutairi/gate/main/install.sh | bash
 ```
 
 This installs `gate-proxy` and `gate-admin` to `/usr/local/bin`. Set `DATABASE_URL` and run `gate-admin` to get started — the dashboard is available at `http://localhost:9000`.
@@ -153,6 +215,12 @@ curl http://localhost:8080/api/get
 | `HEALTH_CHECK_PATH` | `/health` | Health check endpoint path |
 | `METRICS_PORT` | `9091` | Prometheus metrics port |
 | `TRUSTED_PROXIES` | (none) | Comma-separated trusted proxy CIDRs for X-Forwarded-For |
+| `REDIS_URL` | (none) | Redis URL for distributed state (enables Redis backend) |
+| `REDIS_POOL_SIZE` | `8` | Redis connection pool size |
+| `ELASTIC_APM_ENABLED` | `false` | Enable Elastic APM logging (replaces PostgreSQL logging) |
+| `ELASTIC_APM_URL` | (none) | Elastic APM server URL (required when APM enabled) |
+| `ELASTIC_APM_TOKEN` | (none) | Bearer token for Elastic APM authentication |
+| `MAX_SPEC_SIZE_MB` | `25` | Maximum spec file size for service import |
 
 ## Admin API
 
@@ -171,15 +239,15 @@ curl http://localhost:8080/api/get
 | PUT/DELETE | `/admin/api-keys/:id` | Update/delete API key |
 | GET/POST | `/admin/rate-limits` | List/create rate limits |
 | PUT/DELETE | `/admin/rate-limits/:id` | Update/delete rate limit |
-| GET/POST | `/admin/services` | List services / import OpenAPI spec |
+| GET/POST | `/admin/services` | List services / import OpenAPI or WSDL |
 | GET/PUT/DELETE | `/admin/services/:id` | Get/update/delete service |
-| GET | `/admin/services/:id/spec` | Get stored OpenAPI spec |
+| GET | `/admin/services/:id/spec` | Get stored spec (OpenAPI JSON or WSDL XML) |
 
 ## Observability
 
 - **Prometheus**: Metrics available at `http://localhost:9091/metrics`
 - **Grafana**: Access at `http://localhost:3001` (admin/admin)
-- **Request Logs**: Stored in PostgreSQL, queryable via `/admin/logs`
+- **Request Logs**: Stored in PostgreSQL or Elastic APM, queryable via `/admin/logs` (PostgreSQL) or Kibana APM UI (Elastic)
 
 Metrics exposed:
 - `gateway_requests_total` - Request count by method, route, status
@@ -189,6 +257,7 @@ Metrics exposed:
 - `gateway_auth_failures_total` - Authentication failures
 - `gateway_active_connections` - Current active connections
 - `gateway_upstream_health` - Target health status (1=healthy, 0=unhealthy)
+- `gateway_state_backend_redis` - State backend type (1=Redis, 0=Memory)
 
 ## Testing
 
@@ -235,11 +304,13 @@ Combined unit + integration + E2E coverage via `cargo-llvm-cov`:
 ```
 gate/
   crates/
-    proxy/     - Pingora-based reverse proxy
-    admin/     - Axum admin API server
+    proxy/     - Pingora-based reverse proxy (SOAP/JSON translation, Elastic APM)
+    admin/     - Axum admin API server (WSDL parser, service import)
     shared/    - Shared models and configuration
   dashboard/   - React frontend (Vite + TailwindCSS)
   migrations/  - SQL migration files
+  charts/      - Helm chart for Kubernetes deployment
+  deploy/      - Plain Kubernetes YAML manifests
   prometheus/  - Prometheus configuration
   grafana/     - Grafana dashboards and provisioning
 ```
@@ -251,6 +322,9 @@ gate/
 - **Database**: PostgreSQL 16
 - **Dashboard**: React 19 + Vite + TailwindCSS v4 + TanStack Query
 - **Metrics**: Prometheus + Grafana
+- **APM**: Elastic APM (optional)
+- **State**: In-memory or Redis (optional)
+- **XML**: quick-xml for SOAP/WSDL parsing
 
 ## License
 
