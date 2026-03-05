@@ -1,0 +1,239 @@
+<wsdl:definitions xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/"
+    xmlns:wsam="http://www.w3.org/2007/05/addressing/metadata"
+    xmlns:wsx="http://schemas.xmlsoap.org/ws/2004/09/mex"
+    xmlns:wsap="http://schemas.xmlsoap.org/ws/2004/08/addressing/policy"
+    xmlns:msc="http://schemas.microsoft.com/ws/2005/12/wsdl/contract"
+    xmlns:wsp="http://schemas.xmlsoap.org/ws/2004/09/policy"
+    xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+    xmlns:xs="http://www.w3.org/2001/XMLSchema"
+    xmlns:soap="http://schemas.xmlsoap.org/wsdl/soap/"
+    xmlns:wsu="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd"
+    xmlns:soap12="http://schemas.xmlsoap.org/wsdl/soap12/"
+    xmlns:soapenc="http://schemas.xmlsoap.org/soap/encoding/"
+    xmlns:tns="urn:COL.BIC.eServices-V1"
+    xmlns:wsa10="http://www.w3.org/2005/08/addressing"
+    xmlns:wsaw="http://www.w3.org/2006/05/addressing/wsdl"
+    xmlns:wsa="http://schemas.xmlsoap.org/ws/2004/08/addressing" name="MY_Service" targetNamespace="urn:COL.BIC.eServices-V1">
+    <!-- Policy -->
+    <wsp:Policy wsu:Id="BasicsEndPoint_policy">
+        <wsp:ExactlyOne>
+            <wsp:All>
+                <sp:TransportBinding xmlns:sp="http://schemas.xmlsoap.org/ws/2005/07/securitypolicy">
+                    <wsp:Policy>
+                        <sp:TransportToken>
+                            <wsp:Policy>
+                                <sp:HttpsToken RequireClientCertificate="false" />
+                            </wsp:Policy>
+                        </sp:TransportToken>
+                        <sp:AlgorithmSuite>
+                            <wsp:Policy>
+                                <sp:Basic256 />
+                            </wsp:Policy>
+                        </sp:AlgorithmSuite>
+                        <sp:Layout>
+                            <wsp:Policy>
+                                <sp:Strict />
+                            </wsp:Policy>
+                        </sp:Layout>
+                    </wsp:Policy>
+                </sp:TransportBinding>
+            </wsp:All>
+        </wsp:ExactlyOne>
+    </wsp:Policy>
+
+    <!-- Types: ONLY XSD goes here -->
+    <wsdl:types>
+        <xs:schema elementFormDefault="qualified" targetNamespace="urn:COL.BIC.eServices-V1">
+            <xs:import namespace="http://schemas.datacontract.org/2004/07/SamisObjectModel" />
+            <xs:import namespace="http://schemas.datacontract.org/2004/07/SamisObjectModelC" />
+
+            <xs:element name="CustomServiceFly">
+                <xs:complexType>
+                    <xs:sequence>
+                        <xs:element xmlns:q148="http://schemas.datacontract.org/2004/07/SamisObjectModel" minOccurs="0" name="request" nillable="true" type="q148:CustomServiceFly.CustomsGetFlyByDrReq" />
+                        <xs:element minOccurs="0" name="OId" type="xs:double" />
+                        <xs:element minOccurs="0" name="Client" nillable="true" type="xs:string" />
+                        <xs:element minOccurs="0" name="lang" nillable="true" type="xs:string" />
+                    </xs:sequence>
+                </xs:complexType>
+            </xs:element>
+
+            <xs:element name="CustomServiceFlyResponse">
+                <xs:complexType>
+                    <xs:sequence>
+                        <xs:element xmlns:q149="http://schemas.datacontract.org/2004/07/SamisObjectModel" minOccurs="0" name="CustomServiceFlyResult" nillable="true" type="q149:CustomServiceFly.CustomsGetFlyByDrRes" />
+                    </xs:sequence>
+                </xs:complexType>
+            </xs:element>
+
+            <xs:complexType name="CustomServiceFly.CustomsGetFlyByDrReq">
+                <xs:sequence>
+                    <xs:element minOccurs="0" name="Cr" nillable="true" type="xs:string" />
+                    <xs:element minOccurs="0" name="from_date" nillable="true" type="xs:string" />
+                    <xs:element minOccurs="0" name="to_date" nillable="true" type="xs:string" />
+                </xs:sequence>
+            </xs:complexType>
+            <xs:element name="CustomServiceFly.CustomsGetFlyByDrReq" nillable="true" type="tns:CustomServiceFly.CustomsGetFlyByDrReq" />
+
+            <xs:complexType name="CustomServiceFly.CustomsGetFlyByDrRes">
+                <xs:sequence>
+                    <xs:element minOccurs="0" name="RESULT_LIST" nillable="true" type="tns:ArrayOfCustomServiceFly.RESULT_LIST" />
+                    <xs:element minOccurs="0" name="header" nillable="true" type="tns:CustomServiceFly.Header" />
+                </xs:sequence>
+            </xs:complexType>
+            <xs:element name="CustomServiceFly.CustomsGetFlyByDrRes" nillable="true" type="tns:CustomServiceFly.CustomsGetFlyByDrRes" />
+
+            <xs:complexType name="ArrayOfCustomServiceFly.RESULT_LIST">
+                <xs:sequence>
+                    <xs:element minOccurs="0" maxOccurs="unbounded" name="CustomServiceFly.RESULT_LIST" nillable="true" type="tns:CustomServiceFly.RESULT_LIST" />
+                </xs:sequence>
+            </xs:complexType>
+            <xs:element name="ArrayOfCustomServiceFly.RESULT_LIST" nillable="true" type="tns:ArrayOfCustomServiceFly.RESULT_LIST" />
+
+            <xs:complexType name="CustomServiceFly.RESULT_LIST">
+                <xs:sequence>
+                    <xs:element minOccurs="0" name="ACCEPT_DT" nillable="true" type="xs:anyType" />
+                    <xs:element minOccurs="0" name="AGNT_ARBC_NAME" nillable="true" type="xs:string" />
+                    <xs:element minOccurs="0" name="ALL_BILL_ARRIVED" type="xs:double" />
+                    <xs:element minOccurs="0" name="ARBC_IMPR_NAME" nillable="true" type="xs:string" />
+                    <xs:element minOccurs="0" name="ARRIVAL_DT" type="xs:dateTime" />
+                    <xs:element minOccurs="0" name="ARVD_QTY" type="xs:double" />
+                    <xs:element minOccurs="0" name="ARVD_WT" type="xs:double" />
+                    <xs:element minOccurs="0" name="BILL_CTGRY_NAME" nillable="true" type="xs:string" />
+                    <xs:element minOccurs="0" name="BILL_DT" nillable="true" type="xs:string" />
+                    <xs:element minOccurs="0" name="BILL_NBR" nillable="true" type="xs:string" />
+                    <xs:element minOccurs="0" name="BILL_PRE_TYPE_NAME" nillable="true" type="xs:string" />
+                    <xs:element minOccurs="0" name="BILL_STATUS_NAME" nillable="true" type="xs:string" />
+                    <xs:element minOccurs="0" name="BILL_TYPE_DESC" nillable="true" type="xs:string" />
+                    <xs:element minOccurs="0" name="BUS_ID" nillable="true" type="xs:string" />
+                    <xs:element minOccurs="0" name="BUS_ID_BRNCH" nillable="true" type="xs:anyType" />
+                    <xs:element minOccurs="0" name="CARRIER_CODE" nillable="true" type="xs:string" />
+                    <xs:element minOccurs="0" name="CARR_PREFIX" type="xs:double" />
+                    <xs:element minOccurs="0" name="CLRNC_TYPE_DESC" nillable="true" type="xs:string" />
+                    <xs:element minOccurs="0" name="CMRCL_REGSTN_NBR" nillable="true" type="xs:string" />
+                    <xs:element minOccurs="0" name="CRNCY_CODE" nillable="true" type="xs:string" />
+                    <xs:element minOccurs="0" name="DCLTN_STS_DT" nillable="true" type="xs:string" />
+                    <xs:element minOccurs="0" name="DCLTN_STS_ISN" type="xs:double" />
+                    <xs:element minOccurs="0" name="DCLTN_STS_NBR" type="xs:double" />
+                    <xs:element minOccurs="0" name="DCLTN_STS_PORT_NAME" nillable="true" type="xs:string" />
+                    <xs:element minOccurs="0" name="DCLTN_STS_TYPE" nillable="true" type="xs:string" />
+                    <xs:element minOccurs="0" name="DLVY_DT" nillable="true" type="xs:string" />
+                    <xs:element minOccurs="0" name="DLVY_NBR" type="xs:double" />
+                    <xs:element minOccurs="0" name="DLVY_TIME" type="xs:dateTime" />
+                    <xs:element minOccurs="0" name="ENDORSEMENT_DATE" type="xs:dateTime" />
+                    <xs:element minOccurs="0" name="ENDORSEMENT_STATUS_DESC" nillable="true" type="xs:anyType" />
+                    <xs:element minOccurs="0" name="EXPRESS_TYPE_DESC" nillable="true" type="xs:anyType" />
+                    <xs:element minOccurs="0" name="FREE_ZOON_ST_DESC" nillable="true" type="xs:anyType" />
+                    <xs:element minOccurs="0" name="FRIEST_OWNER_NAME" nillable="true" type="xs:anyType" />
+                    <xs:element minOccurs="0" name="IMPR_NBR" type="xs:double" />
+                    <xs:element minOccurs="0" name="ITEM_DESC" nillable="true" type="xs:string" />
+                    <xs:element minOccurs="0" name="ITEM_ENG_DESC" nillable="true" type="xs:string" />
+                    <xs:element minOccurs="0" name="ITEM_MARK" nillable="true" type="xs:anyType" />
+                    <xs:element minOccurs="0" name="ITEM_QTY" type="xs:double" />
+                    <xs:element minOccurs="0" name="ITEM_SEQ" type="xs:double" />
+                    <xs:element minOccurs="0" name="ITEM_WT" type="xs:double" />
+                    <xs:element minOccurs="0" name="LOAD_CTRY_ARBC_NAME" nillable="true" type="xs:string" />
+                    <xs:element minOccurs="0" name="LOAD_PORT_NAME" nillable="true" type="xs:string" />
+                    <xs:element minOccurs="0" name="LOAD_PORT_TYPE_DESC" nillable="true" type="xs:string" />
+                    <xs:element minOccurs="0" name="MFST_NBR" type="xs:double" />
+                    <xs:element minOccurs="0" name="MFST_QTY" type="xs:double" />
+                    <xs:element minOccurs="0" name="MFST_STATUS_DESC" nillable="true" type="xs:string" />
+                    <xs:element minOccurs="0" name="MFST_WT" type="xs:double" />
+                    <xs:element minOccurs="0" name="MFST_YEAR" type="xs:int" />
+                    <xs:element minOccurs="0" name="MNFST_TYPE_DESC" nillable="true" type="xs:string" />
+                    <xs:element minOccurs="0" name="NO_OF_BILLS" type="xs:double" />
+                    <xs:element minOccurs="0" name="OWNER_ENG_NAME" nillable="true" type="xs:string" />
+                    <xs:element minOccurs="0" name="OWNER_NAME" nillable="true" type="xs:string" />
+                    <xs:element minOccurs="0" name="PKG_TYPE_DESC" nillable="true" type="xs:string" />
+                    <xs:element minOccurs="0" name="PMT_METHOD_DESC" nillable="true" type="xs:string" />
+                    <xs:element minOccurs="0" name="PORT_NAME" nillable="true" type="xs:string" />
+                    <xs:element minOccurs="0" name="SHPG_AGNT_TYPE" type="xs:double" />
+                    <xs:element minOccurs="0" name="SHPMT_TYPE_DESC" nillable="true" type="xs:string" />
+                    <xs:element minOccurs="0" name="TOT_ORG_QTY" type="xs:double" />
+                    <xs:element minOccurs="0" name="TOT_ORG_WT" type="xs:double" />
+                    <xs:element minOccurs="0" name="TOT_RMDR_QTY" type="xs:double" />
+                    <xs:element minOccurs="0" name="TOT_RMDR_WT" type="xs:double" />
+                    <xs:element minOccurs="0" name="TRIP_ARRVL_DT" nillable="true" type="xs:string" />
+                    <xs:element minOccurs="0" name="TRIP_DPTR_DT" type="xs:dateTime" />
+                    <xs:element minOccurs="0" name="TRIP_NBR" nillable="true" type="xs:string" />
+                    <xs:element minOccurs="0" name="UNLOAD_DATE" nillable="true" type="xs:string" />
+                    <xs:element minOccurs="0" name="WHS_CODE" nillable="true" type="xs:string" />
+                    <xs:element minOccurs="0" name="WHS_QTY" type="xs:double" />
+                    <xs:element minOccurs="0" name="WHS_SEQ_NBR" type="xs:double" />
+                </xs:sequence>
+            </xs:complexType>
+            <xs:element name="CustomServiceFly.RESULT_LIST" nillable="true" type="tns:CustomServiceFly.RESULT_LIST" />
+
+            <xs:complexType name="CustomServiceFly.Header">
+                <xs:sequence>
+                    <xs:element minOccurs="0" name="requestID" nillable="true" type="xs:string" />
+                    <xs:element minOccurs="0" name="status" nillable="true" type="tns:CustomServiceFly.Status" />
+                </xs:sequence>
+            </xs:complexType>
+            <xs:element name="CustomServiceFly.Header" nillable="true" type="tns:CustomServiceFly.Header" />
+
+            <xs:complexType name="CustomServiceFly.Status">
+                <xs:sequence>
+                    <xs:element minOccurs="0" name="code" nillable="true" type="xs:string" />
+                    <xs:element minOccurs="0" name="description" nillable="true" type="xs:string" />
+                </xs:sequence>
+            </xs:complexType>
+            <xs:element name="CustomServiceFly.Status" nillable="true" type="tns:CustomServiceFly.Status" />
+        </xs:schema>
+    </wsdl:types>
+
+    <!-- Messages (MUST be at wsdl:definitions level) -->
+    <wsdl:message name="IMY_Service_CustomServiceFly_InputMessage">
+        <wsdl:part name="parameters" element="tns:CustomServiceFly" />
+    </wsdl:message>
+
+    <wsdl:message name="IMY_Service_CustomServiceFly_InputMessage_Headers">
+        <wsdl:part xmlns:q157="http://MyWebServiceHeader" name="MYHeader" element="q157:MYHeader" />
+    </wsdl:message>
+
+    <wsdl:message name="IMY_Service_CustomServiceFly_OutputMessage">
+        <wsdl:part name="parameters" element="tns:CustomServiceFlyResponse" />
+    </wsdl:message>
+
+    <wsdl:message name="IMY_Service_CustomServiceFly_SamisWSFaultFault_FaultMessage">
+        <wsdl:part xmlns:q158="http://schemas.datacontract.org/2004/07/SamisFullServiceLibrary" name="detail" element="q158:SamisWSFault" />
+    </wsdl:message>
+
+    <!-- PortType (this is where wsdl:operation belongs) -->
+    <wsdl:portType name="IMY_Service">
+        <wsdl:operation name="CustomServiceFly">
+            <wsdl:input message="tns:IMY_Service_CustomServiceFly_InputMessage" />
+            <wsdl:output message="tns:IMY_Service_CustomServiceFly_OutputMessage" />
+            <wsdl:fault name="SamisWSFaultFault" message="tns:IMY_Service_CustomServiceFly_SamisWSFaultFault_FaultMessage" />
+        </wsdl:operation>
+    </wsdl:portType>
+
+    <!-- Binding -->
+    <wsdl:binding name="BasicEndPoint" type="tns:IMY_Service">
+        <soap:binding transport="http://schemas.xmlsoap.org/soap/http" />
+
+        <wsdl:operation name="CustomServiceFly">
+            <soap:operation soapAction="urn:COL.BIC.eServices-V1/IMY_Service/CustomServiceFly" style="document" />
+
+            <wsdl:input>
+                <soap:header message="tns:IMY_Service_CustomServiceFly_InputMessage_Headers" part="MYHeader" use="literal" />
+                <soap:body use="literal" />
+            </wsdl:input>
+
+            <wsdl:output>
+                <soap:body use="literal" />
+            </wsdl:output>
+
+            <wsdl:fault name="SamisWSFaultFault">
+                <soap:fault use="literal" name="SamisWSFaultFault" namespace="" />
+            </wsdl:fault>
+        </wsdl:operation>
+    </wsdl:binding>
+
+    <!-- Service -->
+    <wsdl:service name="MY_Service">
+        <wsdl:port name="BasicEndPoint" binding="tns:BasicEndPoint">
+            <soap:address location="http://cool.by.test/Service.svc" />
+        </wsdl:port>
+    </wsdl:service>
+</wsdl:definitions>

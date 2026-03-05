@@ -497,45 +497,54 @@ fn build_schema_from_element(
 
     if let Some(el) = elements.get(element_name) {
         for field in &el.fields {
-            build_field_schema(complex_types, field, &mut openapi_props, &mut meta_schema);
+            build_field_schema(complex_types, field, &mut openapi_props, &mut meta_schema, 0);
         }
     }
 
     (openapi_props, meta_schema)
 }
 
+/// Maximum nesting depth for complex type resolution to prevent infinite recursion
+/// from circular type references (e.g. Person → Dependant → Person).
+const MAX_COMPLEX_TYPE_DEPTH: u8 = 3;
+
 /// Recursively build schema for a single field, resolving complex type references.
+/// Stops expanding at `MAX_COMPLEX_TYPE_DEPTH` to guard against circular references.
 fn build_field_schema(
     complex_types: &HashMap<String, Vec<XsdField>>,
     field: &XsdField,
     openapi_props: &mut Map<String, Value>,
     meta_schema: &mut Map<String, Value>,
+    depth: u8,
 ) {
-    if let Some(ct_fields) = resolve_complex_type(complex_types, &field.xsd_type) {
-        // This field references a complex type — expand as nested object
-        let mut nested_props = Map::new();
-        let mut nested_meta = Map::new();
-        for child in ct_fields {
-            build_field_schema(complex_types, child, &mut nested_props, &mut nested_meta);
+    if depth < MAX_COMPLEX_TYPE_DEPTH {
+        if let Some(ct_fields) = resolve_complex_type(complex_types, &field.xsd_type) {
+            // This field references a complex type — expand as nested object
+            let mut nested_props = Map::new();
+            let mut nested_meta = Map::new();
+            for child in ct_fields {
+                build_field_schema(complex_types, child, &mut nested_props, &mut nested_meta, depth + 1);
+            }
+            openapi_props.insert(
+                field.name.clone(),
+                json!({"type": "object", "properties": nested_props}),
+            );
+            meta_schema.insert(
+                field.name.clone(),
+                json!({"type": "object", "properties": nested_meta}),
+            );
+            return;
         }
-        openapi_props.insert(
-            field.name.clone(),
-            json!({"type": "object", "properties": nested_props}),
-        );
-        meta_schema.insert(
-            field.name.clone(),
-            json!({"type": "object", "properties": nested_meta}),
-        );
-    } else {
-        let (type_str, format) = xsd_to_openapi_type(&field.xsd_type);
-        let mut prop = Map::new();
-        prop.insert("type".into(), json!(type_str));
-        if let Some(fmt) = format {
-            prop.insert("format".into(), json!(fmt));
-        }
-        openapi_props.insert(field.name.clone(), Value::Object(prop));
-        meta_schema.insert(field.name.clone(), json!({"type": type_str}));
     }
+
+    let (type_str, format) = xsd_to_openapi_type(&field.xsd_type);
+    let mut prop = Map::new();
+    prop.insert("type".into(), json!(type_str));
+    if let Some(fmt) = format {
+        prop.insert("format".into(), json!(fmt));
+    }
+    openapi_props.insert(field.name.clone(), Value::Object(prop));
+    meta_schema.insert(field.name.clone(), json!({"type": type_str}));
 }
 
 /// Check if content looks like a WSDL document.
