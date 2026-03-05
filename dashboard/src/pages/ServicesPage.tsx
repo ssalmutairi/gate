@@ -86,10 +86,13 @@ export default function ServicesPage() {
   const [editTags, setEditTags] = useState('');
   const [editStatus, setEditStatus] = useState('stable');
 
-  // JSON validation for paste and file modes
-  const isJsonValid = useMemo(() => {
+  // Content validation for paste and file modes (JSON or XML/WSDL)
+  const isContentValid = useMemo(() => {
     if (importMethod !== 'paste' && importMethod !== 'file') return null;
     if (!specContent.trim()) return null;
+    // XML/WSDL content starts with < or <?xml
+    const trimmed = specContent.trim();
+    if (trimmed.startsWith('<')) return true;
     try {
       JSON.parse(specContent);
       return true;
@@ -97,6 +100,7 @@ export default function ServicesPage() {
       return false;
     }
   }, [importMethod, specContent]);
+
 
   const needsServerUrl = useMemo(() => {
     if ((importMethod !== 'paste' && importMethod !== 'file') || !specContent.trim()) return false;
@@ -126,7 +130,7 @@ export default function ServicesPage() {
     if (title) setNamespace(title);
   }, [specContent]);
 
-  // Validate URL on blur: check format + reachability, extract title
+  // Validate URL on blur: check format only (backend validates reachability on import)
   const handleUrlBlur = useCallback(async () => {
     if (!url.trim()) { setUrlStatus(null); return; }
     try {
@@ -135,21 +139,9 @@ export default function ServicesPage() {
       setUrlStatus(false);
       return;
     }
-    setUrlStatus('checking');
-    try {
-      const resp = await fetch(url);
-      if (!resp.ok) { setUrlStatus(false); return; }
-      const text = await resp.text();
-      // Verify it's valid JSON
-      JSON.parse(text);
-      setUrlStatus(true);
-      if (!nameManuallyEdited.current) {
-        const title = extractTitle(text);
-        if (title) setNamespace(title);
-      }
-    } catch {
-      setUrlStatus(false);
-    }
+    // URL format is valid — mark as OK.
+    // Reachability is validated server-side during import (avoids CORS issues).
+    setUrlStatus(true);
   }, [url]);
 
   const importMut = useMutation({
@@ -243,7 +235,7 @@ export default function ServicesPage() {
         <div>
           <h2 className="text-2xl font-bold">Services</h2>
           <p className="text-sm text-muted-foreground">
-            Import OpenAPI/Swagger specs as namespaced services
+            Import OpenAPI/Swagger specs or WSDL services
           </p>
         </div>
         <Button
@@ -327,7 +319,14 @@ export default function ServicesPage() {
                 {services.data.map((svc) => (
                   <tr key={svc.id} className="border-b border-border last:border-0 hover:bg-muted/50 cursor-pointer" onClick={() => navigate(`/services/${svc.id}`)}>
                     <td className="px-4 py-3 font-medium">
-                      /{svc.namespace}
+                      <span className="flex items-center gap-2">
+                        /{svc.namespace}
+                        {svc.service_type === 'soap' && (
+                          <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200">
+                            SOAP
+                          </span>
+                        )}
+                      </span>
                     </td>
                     <td className="px-4 py-3">
                       <Badge>v{svc.version}</Badge>
@@ -380,7 +379,7 @@ export default function ServicesPage() {
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Import OpenAPI Spec</DialogTitle>
+            <DialogTitle>Import Service</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleImport} className="space-y-4">
             {/* Method selector */}
@@ -439,17 +438,17 @@ export default function ServicesPage() {
                 <Label className="mb-1 block">Spec File</Label>
                 <input
                   type="file"
-                  accept=".json"
+                  accept=".json,.xml,.wsdl"
                   onChange={handleFileChange}
                   className="w-full text-sm file:mr-3 file:px-3 file:py-1.5 file:rounded-md file:border-0 file:bg-primary file:text-primary-foreground file:text-sm file:font-medium file:cursor-pointer cursor-pointer"
                   required={!specContent}
                 />
-                {specContent && isJsonValid === true && (
+                {specContent && isContentValid === true && (
                   <p className="mt-1 text-xs text-green-600 dark:text-green-400">
                     File loaded ({Math.round(specContent.length / 1024)}KB)
                   </p>
                 )}
-                {specContent && isJsonValid === false && (
+                {specContent && isContentValid === false && (
                   <p className="mt-1 text-xs text-red-500">
                     File contains invalid JSON
                   </p>
@@ -474,15 +473,15 @@ export default function ServicesPage() {
                   placeholder='{"openapi":"3.0.0","info":{"title":"My API",...}}'
                   rows={8}
                   className={`w-full px-3 py-2 rounded-md border-2 bg-transparent text-sm font-mono focus-visible:outline-none resize-y ${
-                    isJsonValid === null
+                    isContentValid === null
                       ? 'border-input'
-                      : isJsonValid
+                      : isContentValid
                         ? 'border-green-500'
                         : 'border-red-500'
                   }`}
                   required
                 />
-                {isJsonValid === false && (
+                {isContentValid === false && (
                   <p className="mt-1 text-xs text-red-500">Invalid JSON</p>
                 )}
               </div>
@@ -532,7 +531,7 @@ export default function ServicesPage() {
               </Button>
               <Button type="submit" disabled={
                 importMut.isPending ||
-                isJsonValid === false ||
+                isContentValid === false ||
                 (importMethod === 'url' && urlStatus !== null && urlStatus !== true)
               }>
                 {importMut.isPending ? 'Importing...' : 'Import'}

@@ -12,6 +12,7 @@ mod logging;
 mod metrics;
 mod router;
 mod service;
+pub mod soap;
 mod state;
 
 #[cfg(test)]
@@ -131,7 +132,19 @@ fn main() {
     });
 
     // Spawn async log writer
-    let log_sender = logging::spawn_log_writer(app_config.database_url.clone());
+    let log_backend = if app_config.elastic_apm_enabled {
+        let url = app_config.elastic_apm_url.clone()
+            .expect("ELASTIC_APM_URL is required when ELASTIC_APM_ENABLED=true");
+        tracing::info!(url = %url, "Logging backend: Elastic APM");
+        logging::LogBackend::ElasticApm(logging::ElasticApmConfig {
+            url,
+            token: app_config.elastic_apm_token.clone(),
+        })
+    } else {
+        tracing::info!("Logging backend: PostgreSQL");
+        logging::LogBackend::Postgres { database_url: app_config.database_url.clone() }
+    };
+    let log_sender = logging::spawn_log_writer(log_backend);
 
     // Initialize Prometheus metrics and start metrics server
     metrics::init();

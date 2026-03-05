@@ -185,6 +185,7 @@ export interface Service {
   description: string;
   tags: string[];
   status: string;
+  service_type: string;
   created_at: string;
   updated_at: string;
 }

@@ -2,7 +2,9 @@ pub mod auth;
 pub mod dashboard;
 pub mod db;
 pub mod errors;
+pub mod gateway_proxy;
 pub mod routes;
+pub mod wsdl;
 
 use axum::extract::DefaultBodyLimit;
 use axum::middleware;
@@ -143,6 +145,8 @@ pub fn build_router_with_config(pool: PgPool, max_spec_size_bytes: usize) -> Rou
         .layer(cors)
         .layer(DefaultBodyLimit::max(1024 * 1024))
         .layer(Extension(AppSettings { max_spec_size_bytes }))
+        // Gateway reverse proxy (Try It panel in dashboard)
+        .route("/gateway/*rest", axum::routing::any(gateway_proxy::proxy_to_gateway))
         .with_state(pool)
         .fallback(dashboard::dashboard_handler)
 }

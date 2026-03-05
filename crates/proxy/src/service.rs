@@ -2,6 +2,7 @@ use crate::lb::{self, Algorithm, ConnectionTracker};
 use crate::logging::RequestLogEntry;
 use crate::metrics;
 use crate::router::GatewayConfig;
+use crate::soap::SoapOperationMeta;
 use crate::state::StateBackend;
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
@@ -87,6 +88,14 @@ pub struct GatewayCtx {
     pub retries_total: i32,
     /// Cache TTL for this route (seconds), if caching is enabled.
     pub cache_ttl_secs: Option<i32>,
+    /// SOAP operation metadata (set when route matches a SOAP service).
+    pub soap_operation: Option<SoapOperationMeta>,
+    /// Buffer for accumulating the JSON request body (SOAP routes only).
+    pub soap_request_body: Vec<u8>,
+    /// Buffer for accumulating the SOAP XML response body (SOAP routes only).
+    pub soap_response_body: Vec<u8>,
+    /// Captures the upstream response body for error responses (status >= 400), capped at 4 KB.
+    pub error_body: Option<Vec<u8>>,
 }
 
 pub struct GatewayProxy {
@@ -147,6 +156,10 @@ impl ProxyHttp for GatewayProxy {
             retries_remaining: 0,
             retries_total: 0,
             cache_ttl_secs: None,
+            soap_operation: None,
+            soap_request_body: Vec::new(),
+            soap_response_body: Vec::new(),
+            error_body: None,
         }
     }
 
@@ -188,6 +201,18 @@ impl ProxyHttp for GatewayProxy {
         ctx.retries_remaining = route.retries.min(3);
         ctx.retries_total = route.retries.min(3);
         ctx.cache_ttl_secs = route.cache_ttl_secs;
+
+        // --- 1a. SOAP operation detection ---
+        if let Some(soap_meta) = config.get_soap_meta(route) {
+            let op_path = if path.len() > route.path_prefix.len() {
+                &path[route.path_prefix.len()..]
+            } else {
+                "/"
+            };
+            if let Some(op) = soap_meta.operations.get(op_path) {
+                ctx.soap_operation = Some(op.clone());
+            }
+        }
 
         // --- 1b. Request size limiting ---
         if let Some(max_bytes) = route.max_body_bytes {
@@ -314,6 +339,69 @@ impl ProxyHttp for GatewayProxy {
         }
 
         Ok(false)
+    }
+
+    async fn request_body_filter(
+        &self,
+        _session: &mut Session,
+        body: &mut Option<bytes::Bytes>,
+        end_of_stream: bool,
+        ctx: &mut Self::CTX,
+    ) -> Result<()>
+    where
+        Self::CTX: Send + Sync,
+    {
+        if ctx.soap_operation.is_none() {
+            return Ok(());
+        }
+
+        // Buffer incoming JSON body chunks
+        if let Some(data) = body.take() {
+            if ctx.soap_request_body.len() + data.len() > crate::soap::MAX_SOAP_BODY_BYTES {
+                tracing::error!("SOAP request body exceeds size limit");
+                ctx.soap_request_body.clear();
+                let err_json = serde_json::json!({"error": "Request body too large"});
+                *body = Some(bytes::Bytes::from(serde_json::to_vec(&err_json).unwrap_or_default()));
+                return Ok(());
+            }
+            ctx.soap_request_body.extend_from_slice(&data);
+        }
+
+        if end_of_stream {
+            if let Some(ref op) = ctx.soap_operation {
+                let json_body: serde_json::Value = if ctx.soap_request_body.is_empty() {
+                    serde_json::Value::Object(serde_json::Map::new())
+                } else {
+                    match serde_json::from_slice(&ctx.soap_request_body) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            tracing::error!(error = %e, "Invalid JSON in SOAP request body");
+                            let err_json = serde_json::json!({"error": "Invalid JSON request body"});
+                            *body = Some(bytes::Bytes::from(serde_json::to_vec(&err_json).unwrap_or_default()));
+                            ctx.soap_request_body.clear();
+                            return Ok(());
+                        }
+                    }
+                };
+
+                match crate::soap::json_to_soap_xml(
+                    &json_body,
+                    &op.input_element,
+                    &op.target_namespace,
+                ) {
+                    Ok(xml_bytes) => {
+                        *body = Some(bytes::Bytes::from(xml_bytes));
+                    }
+                    Err(e) => {
+                        tracing::error!(error = %e, "Failed to convert JSON to SOAP XML");
+                        *body = Some(bytes::Bytes::from(std::mem::take(&mut ctx.soap_request_body)));
+                    }
+                }
+                ctx.soap_request_body.clear();
+            }
+        }
+
+        Ok(())
     }
 
     async fn upstream_peer(
@@ -485,6 +573,27 @@ impl ProxyHttp for GatewayProxy {
             }
         }
 
+        // SOAP: set Content-Type, SOAPAction headers, fix URL to SOAP endpoint
+        if let Some(ref op) = ctx.soap_operation {
+            upstream_request
+                .insert_header("Content-Type", "text/xml; charset=utf-8")
+                .unwrap();
+            upstream_request
+                .insert_header("SOAPAction", &format!("\"{}\"", op.soap_action))
+                .unwrap();
+            // SOAP requests go to the endpoint path (e.g. /calculator.asmx), not /calculator.asmx/Add
+            // The operation is identified by the SOAPAction header, not the URL
+            if let Ok(parsed) = op.endpoint_path.parse() {
+                upstream_request.set_uri(parsed);
+            }
+            // Remove original Content-Length (body size changes after JSON→XML conversion).
+            // Add Transfer-Encoding: chunked so upstream accepts variable-length body.
+            upstream_request.remove_header("Content-Length");
+            upstream_request
+                .insert_header("Transfer-Encoding", "chunked")
+                .unwrap();
+        }
+
         // Security: set forwarded headers
         let client_ip = self.get_client_ip(session);
         upstream_request.insert_header("X-Forwarded-For", &client_ip).unwrap();
@@ -612,6 +721,18 @@ impl ProxyHttp for GatewayProxy {
             }
         }
 
+        // SOAP: remove Content-Length (body will shrink from XML to JSON) and fix Content-Type
+        if ctx.soap_operation.is_some() {
+            upstream_response.remove_header("Content-Length");
+            let _ = upstream_response.insert_header("Content-Type", "application/json");
+            let _ = upstream_response.insert_header("Transfer-Encoding", "chunked");
+        }
+
+        // Start capturing response body for error responses (for APM error details)
+        if upstream_response.status.as_u16() >= 400 {
+            ctx.error_body = Some(Vec::with_capacity(4096));
+        }
+
         // Apply user-configured response-phase header rules
         if let Some(route_id) = ctx.route_id {
             let config = self.config.load();
@@ -640,6 +761,73 @@ impl ProxyHttp for GatewayProxy {
         }
 
         Ok(())
+    }
+
+    fn upstream_response_body_filter(
+        &self,
+        _session: &mut Session,
+        body: &mut Option<bytes::Bytes>,
+        end_of_stream: bool,
+        ctx: &mut Self::CTX,
+    ) -> Result<Option<std::time::Duration>> {
+        const MAX_ERROR_BODY: usize = 4096;
+
+        // For non-SOAP routes, capture error body directly from upstream chunks
+        if ctx.soap_operation.is_none() {
+            if let Some(ref mut err_buf) = ctx.error_body {
+                if let Some(ref data) = body {
+                    let remaining = MAX_ERROR_BODY.saturating_sub(err_buf.len());
+                    if remaining > 0 {
+                        let take = data.len().min(remaining);
+                        err_buf.extend_from_slice(&data[..take]);
+                    }
+                }
+            }
+            return Ok(None);
+        }
+
+        // Buffer incoming SOAP XML response chunks
+        if let Some(data) = body.take() {
+            if ctx.soap_response_body.len() + data.len() > crate::soap::MAX_SOAP_BODY_BYTES {
+                tracing::error!("SOAP response body exceeds size limit");
+                ctx.soap_response_body.clear();
+                let err_json = serde_json::json!({"error": "SOAP response too large"});
+                *body = Some(bytes::Bytes::from(serde_json::to_vec(&err_json).unwrap_or_default()));
+                return Ok(None);
+            }
+            ctx.soap_response_body.extend_from_slice(&data);
+        }
+
+        if end_of_stream {
+            if let Some(ref op) = ctx.soap_operation {
+                match crate::soap::soap_xml_to_json(
+                    &ctx.soap_response_body,
+                    &op.output_element,
+                ) {
+                    Ok(json_val) => {
+                        let json_bytes = serde_json::to_vec(&json_val).unwrap_or_default();
+                        *body = Some(bytes::Bytes::from(json_bytes));
+                    }
+                    Err(e) => {
+                        tracing::error!(error = %e, "Failed to convert SOAP XML to JSON");
+                        let err_json = serde_json::json!({"error": "Failed to parse SOAP response", "raw": String::from_utf8_lossy(&ctx.soap_response_body).to_string()});
+                        *body = Some(bytes::Bytes::from(serde_json::to_vec(&err_json).unwrap_or_default()));
+                    }
+                }
+                ctx.soap_response_body.clear();
+            }
+
+            // For SOAP routes, capture the final converted body (JSON) as the error body
+            if let Some(ref mut err_buf) = ctx.error_body {
+                if let Some(ref data) = body {
+                    let take = data.len().min(MAX_ERROR_BODY);
+                    err_buf.clear();
+                    err_buf.extend_from_slice(&data[..take]);
+                }
+            }
+        }
+
+        Ok(None)
     }
 
     fn request_cache_filter(&self, session: &mut Session, ctx: &mut Self::CTX) -> Result<()> {
@@ -730,6 +918,13 @@ impl ProxyHttp for GatewayProxy {
         );
 
         // Send log entry to async writer (drop if channel full)
+        let error_body = ctx.error_body.take().and_then(|b| {
+            String::from_utf8(b).ok().filter(|s| !s.is_empty())
+        });
+        let timestamp_us = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_micros() as u64;
         let _ = self.log_sender.try_send(RequestLogEntry {
             route_id: ctx.route_id,
             method: method.to_string(),
@@ -738,6 +933,8 @@ impl ProxyHttp for GatewayProxy {
             latency_ms: duration.as_secs_f64() * 1000.0,
             client_ip: self.get_client_ip(session),
             upstream_target: ctx.upstream_target.clone(),
+            error_body,
+            timestamp_us,
         });
     }
 }
@@ -848,6 +1045,9 @@ mod tests {
         assert_eq!(ctx.retries_remaining, 0);
         assert_eq!(ctx.retries_total, 0);
         assert!(ctx.cache_ttl_secs.is_none());
+        assert!(ctx.soap_operation.is_none());
+        assert!(ctx.soap_request_body.is_empty());
+        assert!(ctx.soap_response_body.is_empty());
     }
 
     #[tokio::test]

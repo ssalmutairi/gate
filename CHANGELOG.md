@@ -7,32 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-03-05
+
 ### Added
 
-- **OpenAPI Schema Display** — Service detail page now shows resolved request body and response schemas for each endpoint, with recursive `$ref` resolution supporting both OpenAPI 3.x and Swagger 2.0 specs
-- **Try It Panel** — Interactive endpoint testing from the dashboard: fill path/query parameters, edit the request body (pre-filled with generated examples from the schema), and send requests through the gateway proxy with color-coded response display and timing
-- **Gateway Dev Proxy** — Vite dev server proxies `/gateway` requests to the proxy server, enabling CORS-free endpoint testing from the dashboard during development
-- **Redis State Backend** — Optional Redis-backed distributed rate limiting and circuit breaker sync for multi-instance deployments (`--features redis-backend`), with automatic fail-open on Redis errors
-- **State Backend Abstraction** — Unified `StateBackend` enum dispatching to in-memory or Redis backends, configurable via `REDIS_URL` environment variable
-- **Circuit Breaker Sync** — Cross-instance circuit breaker state synchronization via Redis with 2-second polling and 60s TTL auto-expiry
-- **Helm Chart** — Full Helm chart (`charts/gate/`) with Bitnami PostgreSQL/Redis subcharts, separate proxy and admin deployments, PodDisruptionBudgets, optional Ingress, and Prometheus ServiceMonitor
-- **Plain Kubernetes Manifests** — Ready-to-use YAML manifests (`deploy/kubernetes/`) with PostgreSQL StatefulSet, Redis, Kustomize support, and hardened security contexts
-- **Kubernetes Ingress** — Nginx ingress with cert-manager TLS for proxy (`gate.k8s.lab`) and admin (`gate-admin.k8s.lab`)
-- **Redis Metrics** — Prometheus counters for Redis errors by operation (`rate_limit`, `cb_publish`, `cb_sync`) and state backend gauge
+- **SOAP/WSDL Support** — Import WSDL services via URL or file upload; the gateway automatically parses WSDL operations, creates SOAP routes, and converts JSON requests to SOAP XML and SOAP XML responses back to JSON
+- **SOAP-to-JSON Proxy** — Transparent JSON↔SOAP translation on the proxy hot path: clients send/receive JSON while the upstream sees standard SOAP envelopes with correct SOAPAction headers
+- **WSDL Parser** — Extracts operations, SOAPAction URIs, input/output element names, and the SOAP endpoint URL from WSDL documents (supports WSDL 1.1)
+- **Elastic APM Logging Backend** — Optional Elastic APM as an alternative to PostgreSQL for request logging (`ELASTIC_APM_ENABLED=true`), sending NDJSON batches to the APM Intake V2 API with transaction and error events
+- **APM Error Events** — Failed requests (status >= 400) emit dedicated APM error events with upstream response body (up to 4 KB), including HTML-to-plaintext stripping for readable error messages in Kibana
+- **Error Body Capture** — Upstream error response bodies are captured (4 KB cap) and included in APM error events for debugging; SOAP routes capture the post-conversion JSON, non-SOAP routes capture the raw upstream body
+- **OpenAPI Schema Display** — Service detail page shows resolved request body and response schemas for each endpoint, with recursive `$ref` resolution supporting both OpenAPI 3.x and Swagger 2.0 specs
+- **Try It Panel** — Interactive endpoint testing from the dashboard with pre-filled request bodies from schema examples
+- **Gateway Dev Proxy** — Vite dev server proxies `/gateway` requests to the proxy server for CORS-free endpoint testing
+- **Redis State Backend** — Optional Redis-backed distributed rate limiting and circuit breaker sync for multi-instance deployments (`--features redis-backend`)
+- **Helm Chart** — Full Helm chart (`charts/gate/`) with Bitnami PostgreSQL/Redis subcharts, separate proxy and admin deployments
+- **Plain Kubernetes Manifests** — Ready-to-use YAML manifests (`deploy/kubernetes/`) with PostgreSQL StatefulSet, Redis, and Kustomize support
 
 ### Changed
 
-- **Prometheus Metric Labels** — Route metrics now use the path prefix (e.g. `/petstore`) instead of UUIDs, making Grafana dashboards human-readable
-- **Image Registry** — Kubernetes manifests now use `registry.lab/apps/gate` as the container image registry
-- **Circuit Breaker API** — `record_success()` now returns `bool` indicating HalfOpen→Closed transition; Redis publish only fires on actual state transitions (eliminates write amplification)
-- **Circuit Breaker State Serialization** — Added `Display`/`FromStr` impls to `State` enum, replacing raw string matching in Redis publish/sync
-- **Rate Limiter Optimization** — Removed double DashMap lookup (get then entry) in favor of single `entry().or_insert_with()` call
-- **Redis CB Sync** — Uses `SCAN` + `MGET` instead of `KEYS` + N individual `GET` calls (fixes N+1 and Redis blocking)
-- **Features Checklist Cleanup** — Removed features that change Gate's core scope (K8s Ingress controller, plugin system, AI/LLM gateway, developer portal, SDK generation, etc.)
+- **Prometheus Metric Labels** — Route metrics now use the path prefix (e.g. `/petstore`) instead of UUIDs
+- **Logging Backend Selection** — `spawn_log_writer` now accepts a `LogBackend` enum (Postgres or ElasticApm) instead of a raw database URL; batch writer loop deduplicated via macro
+- **URL Validation** — Import dialog validates URL format client-side only (avoids CORS errors); reachability is checked server-side during import
+- **Circuit Breaker API** — `record_success()` returns `bool` for HalfOpen→Closed transition; Redis publish only fires on state transitions
+- **Rate Limiter Optimization** — Single `entry().or_insert_with()` call instead of double DashMap lookup
 
 ### Fixed
 
-- **Redis Pool Size** — `REDIS_POOL_SIZE` config is now actually applied to the deadpool-redis pool builder (was parsed and logged but ignored)
+- **Redis Pool Size** — `REDIS_POOL_SIZE` config is now actually applied to the deadpool-redis pool builder
+- **Flaky Logging Tests** — DB logging tests now use unique path filters instead of `COUNT(*)` on the whole table
+- **Config Test Stability** — Removed assertions that conflict with `.env` file values loaded by dotenvy
 
 ## [1.5.0] - 2026-03-02
 

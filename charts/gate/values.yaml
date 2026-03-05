@@ -46,11 +46,11 @@ proxy:
 
   resources:
     requests:
-      cpu: 100m
-      memory: 128Mi
-    limits:
-      cpu: "1"
+      cpu: 250m
       memory: 512Mi
+    limits:
+      cpu: "2"
+      memory: 4Gi
 
   nodeSelector: {}
   tolerations: []
@@ -93,11 +93,11 @@ admin:
 
   resources:
     requests:
-      cpu: 100m
-      memory: 128Mi
-    limits:
-      cpu: 500m
+      cpu: 250m
       memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 2Gi
 
   nodeSelector: {}
   tolerations: []

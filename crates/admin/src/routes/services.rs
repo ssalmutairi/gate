@@ -114,6 +114,7 @@ pub struct ServiceResponse {
     pub description: String,
     pub tags: Vec<String>,
     pub status: String,
+    pub service_type: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
@@ -124,6 +125,24 @@ pub struct ListResponse<T> {
     pub total: i64,
     pub page: i64,
     pub limit: i64,
+}
+
+fn service_to_response(s: shared::models::Service) -> ServiceResponse {
+    ServiceResponse {
+        id: s.id,
+        namespace: s.namespace,
+        version: s.version,
+        spec_url: s.spec_url,
+        spec_hash: s.spec_hash,
+        upstream_id: s.upstream_id,
+        route_id: s.route_id,
+        description: s.description,
+        tags: s.tags,
+        status: s.status,
+        service_type: s.service_type,
+        created_at: s.created_at,
+        updated_at: s.updated_at,
+    }
 }
 
 // --- Helpers ---
@@ -314,9 +333,56 @@ pub async fn import_service(
     hasher.update(&spec_bytes);
     let spec_hash = hex::encode(hasher.finalize());
 
-    // Parse JSON
-    let spec: serde_json::Value = serde_json::from_slice(&spec_bytes)
-        .map_err(|e| AppError::Validation(format!("Invalid JSON in spec: {}", e)))?;
+    // Detect WSDL vs JSON
+    let is_wsdl = crate::wsdl::is_wsdl(&spec_bytes);
+
+    // Parse spec and extract server info depending on type
+    let (spec, spec_text, base_path, host, port, tls, service_type, soap_metadata): (
+        serde_json::Value, String, String, String, u16, bool, &str, Option<serde_json::Value>,
+    ) = if is_wsdl {
+        let xml_str = String::from_utf8_lossy(&spec_bytes).to_string();
+        let wsdl_result = crate::wsdl::parse_wsdl(&xml_str)
+            .map_err(|e| AppError::Validation(format!("WSDL parse error: {}", e)))?;
+
+        // Extract host/port/tls from SOAP endpoint URL
+        let parsed = url::Url::parse(&wsdl_result.endpoint_url).map_err(|e| {
+            AppError::Validation(format!("Invalid SOAP endpoint URL: {}", e))
+        })?;
+        let tls = parsed.scheme() == "https";
+        let host = parsed
+            .host_str()
+            .ok_or_else(|| AppError::Validation("SOAP endpoint has no host".into()))?
+            .to_string();
+        let default_port = if tls { 443 } else { 80 };
+        let port = parsed.port().unwrap_or(default_port);
+        let base_path = parsed.path().trim_end_matches('/').to_string();
+
+        let spec_text = serde_json::to_string_pretty(&wsdl_result.openapi_spec)
+            .unwrap_or_default();
+
+        (
+            wsdl_result.openapi_spec,
+            spec_text,
+            base_path,
+            host,
+            port,
+            tls,
+            "soap",
+            Some(wsdl_result.soap_metadata),
+        )
+    } else {
+        // Parse JSON
+        let spec: serde_json::Value = serde_json::from_slice(&spec_bytes)
+            .map_err(|e| AppError::Validation(format!("Invalid JSON in spec: {}", e)))?;
+
+        let spec_text = String::from_utf8_lossy(&spec_bytes).to_string();
+
+        // Extract server info
+        let (base_path, host, port, tls) =
+            parse_spec_server(&spec, &spec_url, body.server_url.as_deref())?;
+
+        (spec, spec_text, base_path, host, port, tls, "rest", None)
+    };
 
     // Validate that spec has at least one endpoint
     let has_paths = spec
@@ -328,10 +394,6 @@ pub async fn import_service(
             "Spec has no endpoints — paths object is empty or missing".into(),
         ));
     }
-
-    // Extract server info
-    let (base_path, host, port, tls) =
-        parse_spec_server(&spec, &spec_url, body.server_url.as_deref())?;
 
     // Check if namespace already exists
     let existing: Option<shared::models::Service> =
@@ -373,24 +435,37 @@ pub async fn import_service(
             } else {
                 Some(&base_path)
             };
-            sqlx::query(
-                "UPDATE routes SET upstream_path_prefix = $1, updated_at = now() WHERE id = $2",
-            )
-            .bind(prefix_val)
-            .bind(route_id)
-            .execute(&pool)
-            .await?;
+            if service_type == "soap" {
+                // SOAP services only allow POST
+                sqlx::query(
+                    "UPDATE routes SET upstream_path_prefix = $1, methods = $2, updated_at = now() WHERE id = $3",
+                )
+                .bind(prefix_val)
+                .bind(&["POST"] as &[&str])
+                .bind(route_id)
+                .execute(&pool)
+                .await?;
+            } else {
+                sqlx::query(
+                    "UPDATE routes SET upstream_path_prefix = $1, updated_at = now() WHERE id = $2",
+                )
+                .bind(prefix_val)
+                .bind(route_id)
+                .execute(&pool)
+                .await?;
+            }
         }
 
-        // Update service record (including spec_content)
-        let spec_text = String::from_utf8_lossy(&spec_bytes).to_string();
+        // Update service record (including spec_content, service_type, soap_metadata)
         let updated: shared::models::Service = sqlx::query_as(
-            "UPDATE services SET version = $1, spec_url = $2, spec_hash = $3, spec_content = $4, updated_at = now() WHERE id = $5 RETURNING *",
+            "UPDATE services SET version = $1, spec_url = $2, spec_hash = $3, spec_content = $4, service_type = $5, soap_metadata = $6, updated_at = now() WHERE id = $7 RETURNING *",
         )
         .bind(new_version)
         .bind(&spec_url)
         .bind(&spec_hash)
         .bind(&spec_text)
+        .bind(service_type)
+        .bind(&soap_metadata)
         .bind(existing.id)
         .fetch_one(&pool)
         .await?;
@@ -403,20 +478,7 @@ pub async fn import_service(
 
         return Ok((
             axum::http::StatusCode::OK,
-            Json(ServiceResponse {
-                id: updated.id,
-                namespace: updated.namespace,
-                version: updated.version,
-                spec_url: updated.spec_url,
-                spec_hash: updated.spec_hash,
-                upstream_id: updated.upstream_id,
-                route_id: updated.route_id,
-                description: updated.description,
-                tags: updated.tags,
-                status: updated.status,
-                created_at: updated.created_at,
-                updated_at: updated.updated_at,
-            }),
+            Json(service_to_response(updated)),
         ));
     }
 
@@ -445,12 +507,20 @@ pub async fn import_service(
         Some(&base_path)
     };
 
+    // SOAP services only allow POST; REST services allow all methods
+    let methods: Option<Vec<String>> = if service_type == "soap" {
+        Some(vec!["POST".to_string()])
+    } else {
+        None
+    };
+
     let route: shared::models::Route = sqlx::query_as(
-        r#"INSERT INTO routes (name, path_prefix, upstream_id, strip_prefix, upstream_path_prefix, auth_skip)
-           VALUES ($1, $2, $3, true, $4, true) RETURNING *"#,
+        r#"INSERT INTO routes (name, path_prefix, methods, upstream_id, strip_prefix, upstream_path_prefix, auth_skip)
+           VALUES ($1, $2, $3, $4, true, $5, true) RETURNING *"#,
     )
     .bind(format!("svc-{}", namespace))
     .bind(&path_prefix)
+    .bind(&methods)
     .bind(upstream.id)
     .bind(upstream_path_prefix)
     .fetch_one(&pool)
@@ -460,10 +530,9 @@ pub async fn import_service(
     let tags = body.tags.unwrap_or_default();
     let status = body.status.unwrap_or_else(|| "stable".to_string());
 
-    let spec_text = String::from_utf8_lossy(&spec_bytes).to_string();
     let service: shared::models::Service = sqlx::query_as(
-        r#"INSERT INTO services (namespace, spec_url, spec_hash, upstream_id, route_id, description, tags, status, spec_content)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *"#,
+        r#"INSERT INTO services (namespace, spec_url, spec_hash, upstream_id, route_id, description, tags, status, spec_content, service_type, soap_metadata)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *"#,
     )
     .bind(&namespace)
     .bind(&spec_url)
@@ -474,6 +543,8 @@ pub async fn import_service(
     .bind(&tags)
     .bind(&status)
     .bind(&spec_text)
+    .bind(service_type)
+    .bind(&soap_metadata)
     .fetch_one(&pool)
     .await?;
 
@@ -486,20 +557,7 @@ pub async fn import_service(
 
     Ok((
         axum::http::StatusCode::CREATED,
-        Json(ServiceResponse {
-            id: service.id,
-            namespace: service.namespace,
-            version: service.version,
-            spec_url: service.spec_url,
-            spec_hash: service.spec_hash,
-            upstream_id: service.upstream_id,
-            route_id: service.route_id,
-            description: service.description,
-            tags: service.tags,
-            status: service.status,
-            created_at: service.created_at,
-            updated_at: service.updated_at,
-        }),
+        Json(service_to_response(service)),
     ))
 }
 
@@ -564,20 +622,7 @@ pub async fn list_services(
     Ok(Json(ListResponse {
         data: rows
             .into_iter()
-            .map(|s| ServiceResponse {
-                id: s.id,
-                namespace: s.namespace,
-                version: s.version,
-                spec_url: s.spec_url,
-                spec_hash: s.spec_hash,
-                upstream_id: s.upstream_id,
-                route_id: s.route_id,
-                description: s.description,
-                tags: s.tags,
-                status: s.status,
-                created_at: s.created_at,
-                updated_at: s.updated_at,
-            })
+            .map(service_to_response)
             .collect(),
         total: total.0,
         page,
@@ -596,20 +641,7 @@ pub async fn get_service(
             .await?
             .ok_or_else(|| AppError::NotFound("Service not found".into()))?;
 
-    Ok(Json(ServiceResponse {
-        id: service.id,
-        namespace: service.namespace,
-        version: service.version,
-        spec_url: service.spec_url,
-        spec_hash: service.spec_hash,
-        upstream_id: service.upstream_id,
-        route_id: service.route_id,
-        description: service.description,
-        tags: service.tags,
-        status: service.status,
-        created_at: service.created_at,
-        updated_at: service.updated_at,
-    }))
+    Ok(Json(service_to_response(service)))
 }
 
 pub async fn update_service(
@@ -644,20 +676,7 @@ pub async fn update_service(
     .fetch_one(&pool)
     .await?;
 
-    Ok(Json(ServiceResponse {
-        id: updated.id,
-        namespace: updated.namespace,
-        version: updated.version,
-        spec_url: updated.spec_url,
-        spec_hash: updated.spec_hash,
-        upstream_id: updated.upstream_id,
-        route_id: updated.route_id,
-        description: updated.description,
-        tags: updated.tags,
-        status: updated.status,
-        created_at: updated.created_at,
-        updated_at: updated.updated_at,
-    }))
+    Ok(Json(service_to_response(updated)))
 }
 
 pub async fn get_service_spec(

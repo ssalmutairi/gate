@@ -671,6 +671,11 @@ export default function ServiceDetailPage() {
           <div className="flex items-center gap-3">
             <h2 className="text-2xl font-bold">/{service.namespace}</h2>
             <Badge>v{service.version}</Badge>
+            {service.service_type === 'soap' && (
+              <span className="inline-block px-2 py-0.5 rounded text-xs font-bold uppercase bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200">
+                SOAP
+              </span>
+            )}
             <span
               className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[service.status] || ''}`}
             >

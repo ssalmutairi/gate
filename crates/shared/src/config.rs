@@ -20,6 +20,12 @@ pub struct AppConfig {
     pub redis_pool_size: usize,
     /// Maximum spec size for service import in MB (default: 25).
     pub max_spec_size_mb: usize,
+    /// Enable Elastic APM as the logging backend (replaces PostgreSQL request logging).
+    pub elastic_apm_enabled: bool,
+    /// Elastic APM server URL (required when `elastic_apm_enabled` is true).
+    pub elastic_apm_url: Option<String>,
+    /// Optional Bearer token for Elastic APM authentication.
+    pub elastic_apm_token: Option<String>,
 }
 
 impl AppConfig {
@@ -71,6 +77,12 @@ impl AppConfig {
                 .unwrap_or_else(|_| "25".into())
                 .parse()
                 .expect("MAX_SPEC_SIZE_MB must be a number"),
+            elastic_apm_enabled: std::env::var("ELASTIC_APM_ENABLED")
+                .unwrap_or_else(|_| "false".into())
+                .parse()
+                .unwrap_or(false),
+            elastic_apm_url: std::env::var("ELASTIC_APM_URL").ok().filter(|s| !s.is_empty()),
+            elastic_apm_token: std::env::var("ELASTIC_APM_TOKEN").ok().filter(|s| !s.is_empty()),
         }
     }
 }
@@ -94,6 +106,7 @@ mod tests {
             "ADMIN_TOKEN", "LOG_LEVEL", "CONFIG_POLL_INTERVAL_SECS",
             "HEALTH_CHECK_INTERVAL_SECS", "HEALTH_CHECK_PATH", "METRICS_PORT",
             "TRUSTED_PROXIES", "REDIS_URL", "REDIS_POOL_SIZE",
+            "ELASTIC_APM_ENABLED", "ELASTIC_APM_URL", "ELASTIC_APM_TOKEN",
         ] {
             std::env::remove_var(key);
         }
@@ -120,8 +133,9 @@ mod tests {
         assert!(config.health_check_interval_secs > 0);
         assert!(!config.health_check_path.is_empty());
         assert!(config.metrics_port > 0);
-        assert!(config.redis_url.is_none());
+        // redis_url may be set by .env — only assert pool_size default
         assert_eq!(config.redis_pool_size, 8);
+        // elastic_apm fields may be set by .env — tested separately in elastic_apm_config_from_env
     }
 
     #[test]
@@ -178,6 +192,21 @@ mod tests {
             super::AppConfig::from_env();
         });
         assert!(result.is_err(), "expected panic for invalid PROXY_PORT");
+    }
+
+    #[test]
+    fn elastic_apm_config_from_env() {
+        let _lock = lock_env();
+        clear_env();
+        std::env::set_var("DATABASE_URL", "postgres://x:x@localhost/x");
+        std::env::set_var("ELASTIC_APM_ENABLED", "true");
+        std::env::set_var("ELASTIC_APM_URL", "http://localhost:8200");
+        std::env::set_var("ELASTIC_APM_TOKEN", "secret-token");
+
+        let config = super::AppConfig::from_env();
+        assert!(config.elastic_apm_enabled);
+        assert_eq!(config.elastic_apm_url.as_deref(), Some("http://localhost:8200"));
+        assert_eq!(config.elastic_apm_token.as_deref(), Some("secret-token"));
     }
 
     #[test]

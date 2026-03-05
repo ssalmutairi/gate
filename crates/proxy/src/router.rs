@@ -1,3 +1,4 @@
+use crate::soap::SoapServiceMeta;
 use shared::models::{ApiKey, HeaderRule, IpRule, RateLimit, Route, Target, Upstream};
 use std::collections::HashMap;
 use subtle::ConstantTimeEq;
@@ -20,10 +21,25 @@ pub struct GatewayConfig {
     pub header_rules: HashMap<Uuid, Vec<HeaderRule>>,
     /// IP allowlist/denylist rules keyed by route ID.
     pub ip_rules: HashMap<Uuid, Vec<IpRule>>,
+    /// SOAP service metadata keyed by service_id (route's service_id).
+    pub soap_services: HashMap<Uuid, SoapServiceMeta>,
 }
 
 impl GatewayConfig {
+    #[cfg(test)]
     pub fn new(
+        routes: Vec<Route>,
+        upstreams: Vec<Upstream>,
+        targets: Vec<Target>,
+        api_keys: Vec<ApiKey>,
+        rate_limits: Vec<RateLimit>,
+        header_rules: Vec<HeaderRule>,
+        ip_rules: Vec<IpRule>,
+    ) -> Self {
+        Self::with_soap(routes, upstreams, targets, api_keys, rate_limits, header_rules, ip_rules, HashMap::new())
+    }
+
+    pub fn with_soap(
         mut routes: Vec<Route>,
         upstreams: Vec<Upstream>,
         targets: Vec<Target>,
@@ -31,6 +47,7 @@ impl GatewayConfig {
         rate_limits: Vec<RateLimit>,
         header_rules: Vec<HeaderRule>,
         ip_rules: Vec<IpRule>,
+        soap_services: HashMap<Uuid, SoapServiceMeta>,
     ) -> Self {
         // Sort routes: longest path_prefix first for most-specific match
         routes.sort_by(|a, b| b.path_prefix.len().cmp(&a.path_prefix.len()));
@@ -64,6 +81,7 @@ impl GatewayConfig {
             rate_limits: rate_limits_map,
             header_rules: header_rules_map,
             ip_rules: ip_rules_map,
+            soap_services,
         }
     }
 
@@ -176,6 +194,10 @@ impl GatewayConfig {
         self.ip_rules.get(route_id)
     }
 
+    /// Get SOAP service metadata for a route by looking up its service_id.
+    pub fn get_soap_meta(&self, route: &Route) -> Option<&SoapServiceMeta> {
+        route.service_id.as_ref().and_then(|sid| self.soap_services.get(sid))
+    }
 }
 
 /// Check if a host matches a pattern. Supports exact match and wildcard `*.example.com`.

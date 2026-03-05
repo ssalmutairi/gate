@@ -110,6 +110,8 @@ pub struct Service {
     pub tags: Vec<String>,
     pub status: String,
     pub spec_content: Option<String>,
+    pub service_type: String,
+    pub soap_metadata: Option<serde_json::Value>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

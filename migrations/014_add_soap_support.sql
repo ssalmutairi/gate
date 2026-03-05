@@ -1,0 +1,3 @@
+-- Add SOAP/WSDL service support
+ALTER TABLE services ADD COLUMN IF NOT EXISTS service_type VARCHAR(16) NOT NULL DEFAULT 'rest';
+ALTER TABLE services ADD COLUMN IF NOT EXISTS soap_metadata JSONB DEFAULT NULL;

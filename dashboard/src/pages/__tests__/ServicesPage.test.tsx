@@ -59,6 +59,7 @@ describe('ServicesPage', () => {
         description: 'Pet store API',
         tags: ['rest', 'pets'],
         status: 'stable',
+        service_type: 'rest',
         created_at: '2024-01-01T00:00:00Z',
         updated_at: '2024-01-01T00:00:00Z',
       },
@@ -104,7 +105,7 @@ describe('ServicesPage', () => {
 
     await user.click(screen.getByText('Import'))
 
-    expect(screen.getByText('Import OpenAPI Spec')).toBeInTheDocument()
+    expect(screen.getByText('Import Service')).toBeInTheDocument()
     expect(screen.getByPlaceholderText(/petstore3/)).toBeInTheDocument()
   })
 
@@ -121,6 +122,7 @@ describe('ServicesPage', () => {
         description: 'To edit',
         tags: ['tag1'],
         status: 'alpha',
+        service_type: 'rest',
         created_at: '2024-01-01T00:00:00Z',
         updated_at: '2024-01-01T00:00:00Z',
       },

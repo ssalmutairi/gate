@@ -1,10 +1,13 @@
 use crate::router::GatewayConfig;
+use crate::soap::SoapServiceMeta;
 use arc_swap::ArcSwap;
 use shared::models::{ApiKey, HeaderRule, IpRule, RateLimit, Route, Target, Upstream};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
+use uuid::Uuid;
 
 /// Loads all config from the database.
 pub async fn load_config(pool: &PgPool) -> GatewayConfig {
@@ -43,6 +46,23 @@ pub async fn load_config(pool: &PgPool) -> GatewayConfig {
         .await
         .unwrap_or_default();
 
+    // Load SOAP service metadata
+    let soap_rows: Vec<(Uuid, Option<serde_json::Value>)> = sqlx::query_as(
+        "SELECT id, soap_metadata FROM services WHERE service_type = 'soap' AND soap_metadata IS NOT NULL"
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+
+    let mut soap_services: HashMap<Uuid, SoapServiceMeta> = HashMap::new();
+    for (service_id, meta_opt) in soap_rows {
+        if let Some(meta_val) = meta_opt {
+            if let Some(parsed) = SoapServiceMeta::from_json(&meta_val) {
+                soap_services.insert(service_id, parsed);
+            }
+        }
+    }
+
     tracing::info!(
         routes = routes.len(),
         upstreams = upstreams.len(),
@@ -51,10 +71,11 @@ pub async fn load_config(pool: &PgPool) -> GatewayConfig {
         rate_limits = rate_limits.len(),
         header_rules = header_rules.len(),
         ip_rules = ip_rules.len(),
+        soap_services = soap_services.len(),
         "Config loaded from database"
     );
 
-    GatewayConfig::new(routes, upstreams, targets, api_keys, rate_limits, header_rules, ip_rules)
+    GatewayConfig::with_soap(routes, upstreams, targets, api_keys, rate_limits, header_rules, ip_rules, soap_services)
 }
 
 #[cfg(test)]
@@ -73,6 +94,7 @@ async fn run_test_migrations(pool: &PgPool) {
         include_str!("../../../migrations/011_add_resilience.sql"),
         include_str!("../../../migrations/012_add_route_host_and_cache.sql"),
         include_str!("../../../migrations/013_create_ip_rules.sql"),
+        include_str!("../../../migrations/014_add_soap_support.sql"),
     ];
     for sql in &migrations {
         for statement in sql.split(';') {
