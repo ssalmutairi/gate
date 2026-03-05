@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Complex Type Recursion Limit** — WSDL complex type resolution now stops at depth 3 to prevent infinite recursion from circular type references (e.g. Person → Dependant → Person)
+- **Complex Type Recursion Limit** — WSDL complex type resolution now stops at depth 3 to prevent infinite recursion from circular type references
 
 ## [1.6.3] - 2026-03-06
 
