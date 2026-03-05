@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.2] - 2026-03-05
+
+### Fixed
+
+- **Large Spec Upload** — Request body limit now uses the configurable `MAX_SPEC_SIZE_MB` (default 25 MB) instead of a hardcoded 1 MB cap; large WSDL and OpenAPI file uploads were rejected before the handler could process them
+
 ## [1.6.1] - 2026-03-05
 
 ### Fixed
