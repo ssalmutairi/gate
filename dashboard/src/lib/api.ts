@@ -195,7 +195,7 @@ export const getService = (id: string) =>
   api.get<Service>(`/services/${id}`).then(r => r.data);
 export const getServiceSpec = (id: string) =>
   api.get<any>(`/services/${id}/spec`).then(r => r.data);
-export const importService = (data: { url?: string; spec_content?: string; namespace: string; description?: string; tags?: string[]; status?: string }) =>
+export const importService = (data: { url?: string; spec_content?: string; namespace: string; server_url?: string; description?: string; tags?: string[]; status?: string }) =>
   api.post<Service>('/services/import', data).then(r => r.data);
 export const updateService = (id: string, data: { description?: string; tags?: string[]; status?: string }) =>
   api.put<Service>(`/services/${id}`, data).then(r => r.data);

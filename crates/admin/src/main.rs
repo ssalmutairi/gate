@@ -28,7 +28,7 @@ async fn main() {
     let pool = admin::db::create_pool(&config.database_url).await;
     admin::db::run_migrations(&pool).await;
 
-    let app = admin::build_router(pool);
+    let app = admin::build_router_with_config(pool, config.max_spec_size_mb * 1024 * 1024);
 
     let addr = format!("{}:{}", config.admin_bind_addr, config.admin_port);
     tracing::info!(addr = %addr, "Admin API listening");

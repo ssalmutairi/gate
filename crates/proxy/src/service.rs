@@ -249,7 +249,7 @@ impl ProxyHttp for GatewayProxy {
 
             match key_header {
                 None => {
-                    metrics::AUTH_FAILURES.with_label_values(&[&route_id.to_string()]).inc();
+                    metrics::AUTH_FAILURES.with_label_values(&[&ctx.path_prefix]).inc();
                     return self
                         .send_json_error(session, 401, "Authorization header required (Bearer <api-key>)", "AUTH_REQUIRED")
                         .await;
@@ -265,7 +265,7 @@ impl ProxyHttp for GatewayProxy {
                             ctx.client_identity = Some(identity);
                         }
                         Err(msg) => {
-                            metrics::AUTH_FAILURES.with_label_values(&[&route_id.to_string()]).inc();
+                            metrics::AUTH_FAILURES.with_label_values(&[&ctx.path_prefix]).inc();
                             return self
                                 .send_json_error(session, 401, msg, "AUTH_FAILED")
                                 .await;
@@ -300,7 +300,7 @@ impl ProxyHttp for GatewayProxy {
                 }
                 Err(retry_after) => {
                     metrics::RATE_LIMIT_HITS
-                        .with_label_values(&[&route_id.to_string(), &rate_limit.limit_by])
+                        .with_label_values(&[&ctx.path_prefix, &rate_limit.limit_by])
                         .inc();
                     return self
                         .send_rate_limit_error(
@@ -581,7 +581,7 @@ impl ProxyHttp for GatewayProxy {
             ctx.upstream_target = None;
             e.set_retry(true);
             metrics::RETRIES_TOTAL
-                .with_label_values(&[&ctx.route_id.map(|id| id.to_string()).unwrap_or_default()])
+                .with_label_values(&[&ctx.path_prefix])
                 .inc();
         }
 
@@ -703,10 +703,13 @@ impl ProxyHttp for GatewayProxy {
             .unwrap_or(0);
         let method = session.req_header().method.as_str();
         let path = session.req_header().uri.path();
-        let route_label = ctx
-            .route_id
-            .map(|id| id.to_string())
-            .unwrap_or_default();
+        let route_label = if ctx.path_prefix.is_empty() {
+            ctx.route_id
+                .map(|id| id.to_string())
+                .unwrap_or_default()
+        } else {
+            ctx.path_prefix.clone()
+        };
 
         // Record Prometheus metrics
         metrics::REQUESTS_TOTAL

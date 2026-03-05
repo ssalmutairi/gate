@@ -18,6 +18,8 @@ pub struct AppConfig {
     pub redis_url: Option<String>,
     /// Redis connection pool size (default: 8).
     pub redis_pool_size: usize,
+    /// Maximum spec size for service import in MB (default: 25).
+    pub max_spec_size_mb: usize,
 }
 
 impl AppConfig {
@@ -65,6 +67,10 @@ impl AppConfig {
                 .unwrap_or_else(|_| "8".into())
                 .parse()
                 .expect("REDIS_POOL_SIZE must be a number"),
+            max_spec_size_mb: std::env::var("MAX_SPEC_SIZE_MB")
+                .unwrap_or_else(|_| "25".into())
+                .parse()
+                .expect("MAX_SPEC_SIZE_MB must be a number"),
         }
     }
 }

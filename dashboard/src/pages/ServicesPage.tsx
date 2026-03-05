@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -76,11 +76,81 @@ export default function ServicesPage() {
   const [url, setUrl] = useState('');
   const [specContent, setSpecContent] = useState('');
   const [namespace, setNamespace] = useState('');
+  const [serverUrl, setServerUrl] = useState('');
+  const nameManuallyEdited = useRef(false);
+  // URL validation: null = not checked, 'checking' = in progress, true = reachable, false = invalid/unreachable
+  const [urlStatus, setUrlStatus] = useState<null | 'checking' | boolean>(null);
 
   // Edit form state
   const [editDescription, setEditDescription] = useState('');
   const [editTags, setEditTags] = useState('');
   const [editStatus, setEditStatus] = useState('stable');
+
+  // JSON validation for paste and file modes
+  const isJsonValid = useMemo(() => {
+    if (importMethod !== 'paste' && importMethod !== 'file') return null;
+    if (!specContent.trim()) return null;
+    try {
+      JSON.parse(specContent);
+      return true;
+    } catch {
+      return false;
+    }
+  }, [importMethod, specContent]);
+
+  const needsServerUrl = useMemo(() => {
+    if ((importMethod !== 'paste' && importMethod !== 'file') || !specContent.trim()) return false;
+    try {
+      const spec = JSON.parse(specContent);
+      const hasServers = Array.isArray(spec.servers) && spec.servers.length > 0 && spec.servers[0]?.url;
+      const hasHost = !!spec.host;
+      return !hasServers && !hasHost;
+    } catch {
+      return false;
+    }
+  }, [importMethod, specContent]);
+
+  // Extract info.title from spec JSON string
+  const extractTitle = (content: string): string | null => {
+    try {
+      return JSON.parse(content)?.info?.title || null;
+    } catch {
+      return null;
+    }
+  };
+
+  // Auto-fill namespace from spec title (paste + file) — backup for programmatic updates
+  useEffect(() => {
+    if (nameManuallyEdited.current || !specContent.trim()) return;
+    const title = extractTitle(specContent);
+    if (title) setNamespace(title);
+  }, [specContent]);
+
+  // Validate URL on blur: check format + reachability, extract title
+  const handleUrlBlur = useCallback(async () => {
+    if (!url.trim()) { setUrlStatus(null); return; }
+    try {
+      new URL(url);
+    } catch {
+      setUrlStatus(false);
+      return;
+    }
+    setUrlStatus('checking');
+    try {
+      const resp = await fetch(url);
+      if (!resp.ok) { setUrlStatus(false); return; }
+      const text = await resp.text();
+      // Verify it's valid JSON
+      JSON.parse(text);
+      setUrlStatus(true);
+      if (!nameManuallyEdited.current) {
+        const title = extractTitle(text);
+        if (title) setNamespace(title);
+      }
+    } catch {
+      setUrlStatus(false);
+    }
+  }, [url]);
 
   const importMut = useMutation({
     mutationFn: importService,
@@ -124,10 +194,11 @@ export default function ServicesPage() {
     e.preventDefault();
     const slug = slugify(namespace);
     if (!slug) return;
+    const server = serverUrl.trim() || undefined;
     if (importMethod === 'url') {
-      importMut.mutate({ url, namespace: slug });
+      importMut.mutate({ url, namespace: slug, server_url: server });
     } else {
-      importMut.mutate({ spec_content: specContent, namespace: slug });
+      importMut.mutate({ spec_content: specContent, namespace: slug, server_url: server });
     }
   };
 
@@ -135,7 +206,14 @@ export default function ServicesPage() {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => setSpecContent(reader.result as string);
+    reader.onload = () => {
+      const text = reader.result as string;
+      setSpecContent(text);
+      if (!nameManuallyEdited.current) {
+        const title = extractTitle(text);
+        if (title) setNamespace(title);
+      }
+    };
     reader.readAsText(file);
   };
 
@@ -174,6 +252,9 @@ export default function ServicesPage() {
             setUrl('');
             setSpecContent('');
             setNamespace('');
+            setServerUrl('');
+            setUrlStatus(null);
+            nameManuallyEdited.current = false;
             setModalOpen(true);
           }}
         >
@@ -332,9 +413,23 @@ export default function ServicesPage() {
                 <Input
                   placeholder="https://petstore3.swagger.io/api/v3/openapi.json"
                   value={url}
-                  onChange={(e) => setUrl(e.target.value)}
+                  onChange={(e) => { setUrl(e.target.value); setUrlStatus(null); }}
+                  onBlur={handleUrlBlur}
                   required
+                  className={
+                    urlStatus === null || urlStatus === 'checking'
+                      ? ''
+                      : urlStatus
+                        ? 'border-2 border-green-500 focus-visible:ring-0'
+                        : 'border-2 border-red-500 focus-visible:ring-0'
+                  }
                 />
+                {urlStatus === 'checking' && (
+                  <p className="text-xs text-muted-foreground">Checking URL...</p>
+                )}
+                {urlStatus === false && (
+                  <p className="text-xs text-red-500">URL is invalid or unreachable</p>
+                )}
               </div>
             )}
 
@@ -349,9 +444,14 @@ export default function ServicesPage() {
                   className="w-full text-sm file:mr-3 file:px-3 file:py-1.5 file:rounded-md file:border-0 file:bg-primary file:text-primary-foreground file:text-sm file:font-medium file:cursor-pointer cursor-pointer"
                   required={!specContent}
                 />
-                {specContent && (
+                {specContent && isJsonValid === true && (
                   <p className="mt-1 text-xs text-green-600 dark:text-green-400">
                     File loaded ({Math.round(specContent.length / 1024)}KB)
+                  </p>
+                )}
+                {specContent && isJsonValid === false && (
+                  <p className="mt-1 text-xs text-red-500">
+                    File contains invalid JSON
                   </p>
                 )}
               </div>
@@ -363,12 +463,44 @@ export default function ServicesPage() {
                 <Label className="mb-1 block">Spec JSON</Label>
                 <textarea
                   value={specContent}
-                  onChange={(e) => setSpecContent(e.target.value)}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setSpecContent(val);
+                    if (!nameManuallyEdited.current) {
+                      const title = extractTitle(val);
+                      if (title) setNamespace(title);
+                    }
+                  }}
                   placeholder='{"openapi":"3.0.0","info":{"title":"My API",...}}'
                   rows={8}
-                  className="w-full px-3 py-2 rounded-md border border-input bg-transparent text-sm font-mono focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-y"
+                  className={`w-full px-3 py-2 rounded-md border-2 bg-transparent text-sm font-mono focus-visible:outline-none resize-y ${
+                    isJsonValid === null
+                      ? 'border-input'
+                      : isJsonValid
+                        ? 'border-green-500'
+                        : 'border-red-500'
+                  }`}
                   required
                 />
+                {isJsonValid === false && (
+                  <p className="mt-1 text-xs text-red-500">Invalid JSON</p>
+                )}
+              </div>
+            )}
+
+            {/* Server URL override (shown when spec has no server) */}
+            {needsServerUrl && (
+              <div className="space-y-1">
+                <Label>Server URL</Label>
+                <Input
+                  placeholder="https://api.example.com"
+                  value={serverUrl}
+                  onChange={(e) => setServerUrl(e.target.value)}
+                  required
+                />
+                <p className="text-xs text-amber-500">
+                  Spec has no server URL — enter the upstream base URL
+                </p>
               </div>
             )}
 
@@ -379,7 +511,7 @@ export default function ServicesPage() {
                 <Input
                   placeholder="Pet Store"
                   value={namespace}
-                  onChange={(e) => setNamespace(e.target.value)}
+                  onChange={(e) => { nameManuallyEdited.current = true; setNamespace(e.target.value); }}
                   required
                 />
               </div>
@@ -398,7 +530,11 @@ export default function ServicesPage() {
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={importMut.isPending}>
+              <Button type="submit" disabled={
+                importMut.isPending ||
+                isJsonValid === false ||
+                (importMethod === 'url' && urlStatus !== null && urlStatus !== true)
+              }>
                 {importMut.isPending ? 'Importing...' : 'Import'}
               </Button>
             </DialogFooter>

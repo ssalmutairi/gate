@@ -14,8 +14,13 @@ export default defineConfig({
     port: 3000,
     proxy: {
       '/admin': {
-        target: process.env.VITE_API_TARGET || 'http://localhost:9001',
+        target: process.env.VITE_API_TARGET || 'http://127.0.0.1:9000',
         changeOrigin: true,
+      },
+      '/gateway': {
+        target: process.env.VITE_PROXY_TARGET || 'http://127.0.0.1:8080',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/gateway/, ''),
       },
     },
   },

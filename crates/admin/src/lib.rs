@@ -7,11 +7,22 @@ pub mod routes;
 use axum::extract::DefaultBodyLimit;
 use axum::middleware;
 use axum::routing::{delete, get, post, put};
+use axum::Extension;
 use axum::Router;
 use sqlx::PgPool;
 use tower_http::cors::{AllowHeaders, AllowMethods, AllowOrigin, CorsLayer};
 
+/// Shared config values available to handlers via Extension.
+#[derive(Clone)]
+pub struct AppSettings {
+    pub max_spec_size_bytes: usize,
+}
+
 pub fn build_router(pool: PgPool) -> Router {
+    build_router_with_config(pool, 25 * 1024 * 1024)
+}
+
+pub fn build_router_with_config(pool: PgPool, max_spec_size_bytes: usize) -> Router {
     // CORS: use CORS_ALLOWED_ORIGINS env var if set, otherwise allow same-origin only
     let cors = match std::env::var("CORS_ALLOWED_ORIGINS") {
         Ok(origins) if !origins.is_empty() && origins != "*" => {
@@ -131,6 +142,7 @@ pub fn build_router(pool: PgPool) -> Router {
         .layer(middleware::from_fn(auth::admin_token_middleware))
         .layer(cors)
         .layer(DefaultBodyLimit::max(1024 * 1024))
+        .layer(Extension(AppSettings { max_spec_size_bytes }))
         .with_state(pool)
         .fallback(dashboard::dashboard_handler)
 }

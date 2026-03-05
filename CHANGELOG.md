@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **OpenAPI Schema Display** — Service detail page now shows resolved request body and response schemas for each endpoint, with recursive `$ref` resolution supporting both OpenAPI 3.x and Swagger 2.0 specs
+- **Try It Panel** — Interactive endpoint testing from the dashboard: fill path/query parameters, edit the request body (pre-filled with generated examples from the schema), and send requests through the gateway proxy with color-coded response display and timing
+- **Gateway Dev Proxy** — Vite dev server proxies `/gateway` requests to the proxy server, enabling CORS-free endpoint testing from the dashboard during development
 - **Redis State Backend** — Optional Redis-backed distributed rate limiting and circuit breaker sync for multi-instance deployments (`--features redis-backend`), with automatic fail-open on Redis errors
 - **State Backend Abstraction** — Unified `StateBackend` enum dispatching to in-memory or Redis backends, configurable via `REDIS_URL` environment variable
 - **Circuit Breaker Sync** — Cross-instance circuit breaker state synchronization via Redis with 2-second polling and 60s TTL auto-expiry
@@ -19,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Prometheus Metric Labels** — Route metrics now use the path prefix (e.g. `/petstore`) instead of UUIDs, making Grafana dashboards human-readable
 - **Image Registry** — Kubernetes manifests now use `registry.lab/apps/gate` as the container image registry
 - **Circuit Breaker API** — `record_success()` now returns `bool` indicating HalfOpen→Closed transition; Redis publish only fires on actual state transitions (eliminates write amplification)
 - **Circuit Breaker State Serialization** — Added `Display`/`FromStr` impls to `State` enum, replacing raw string matching in Redis publish/sync

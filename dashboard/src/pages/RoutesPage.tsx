@@ -29,6 +29,7 @@ import {
   SelectValue,
 } from '../components/ui/select';
 import { EmptyState } from '../components/ui';
+import { Switch } from '../components/ui/switch';
 import { toast } from 'sonner';
 import { Plus, Pencil, Trash2 } from 'lucide-react';
 
@@ -160,13 +161,13 @@ export default function RoutesPage() {
                   <th className="px-4 py-3 font-medium">Methods</th>
                   <th className="px-4 py-3 font-medium">Upstream</th>
                   <th className="px-4 py-3 font-medium">Auth</th>
-                  <th className="px-4 py-3 font-medium">Status</th>
-                  <th className="px-4 py-3 font-medium">Actions</th>
+                  <th className="px-4 py-3 font-medium">Enabled</th>
+                  <th className="px-4 py-3 font-medium w-24"></th>
                 </tr>
               </thead>
               <tbody>
                 {routes.data?.map((route) => (
-                  <tr key={route.id} className="border-b border-border last:border-0 hover:bg-muted/50">
+                  <tr key={route.id} className={`border-b border-border last:border-0 hover:bg-muted/50 ${!route.active ? 'opacity-50' : ''}`}>
                     <td className="px-4 py-3 font-medium">{route.name}</td>
                     <td className="px-4 py-3 font-mono text-xs">{route.path_prefix}</td>
                     <td className="px-4 py-3">
@@ -189,16 +190,10 @@ export default function RoutesPage() {
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <button
-                        onClick={() => toggleActive.mutate({ id: route.id, active: !route.active })}
-                        className={`text-xs px-2 py-0.5 rounded-full cursor-pointer ${
-                          route.active
-                            ? 'bg-success/10 text-success'
-                            : 'bg-muted text-muted-foreground'
-                        }`}
-                      >
-                        {route.active ? 'Active' : 'Inactive'}
-                      </button>
+                      <Switch
+                        checked={route.active}
+                        onCheckedChange={(active) => toggleActive.mutate({ id: route.id, active })}
+                      />
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex gap-1">

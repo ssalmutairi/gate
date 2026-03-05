@@ -37,6 +37,7 @@
 - **Prometheus Metrics** - Request counters, latency histograms, health gauges
 - **Request Logging** - Async batched logging to PostgreSQL
 - **Embedded Dashboard** - React UI compiled into the admin binary, served on the same port
+- **OpenAPI Schema Viewer** - Resolved request/response schemas with interactive "Try It" panel for testing endpoints directly from the dashboard
 - **Cross-Platform Binaries** - Precompiled releases for Linux and macOS (x86_64 + aarch64)
 - **Docker Compose** - One-command deployment of the full stack
 
@@ -170,6 +171,9 @@ curl http://localhost:8080/api/get
 | PUT/DELETE | `/admin/api-keys/:id` | Update/delete API key |
 | GET/POST | `/admin/rate-limits` | List/create rate limits |
 | PUT/DELETE | `/admin/rate-limits/:id` | Update/delete rate limit |
+| GET/POST | `/admin/services` | List services / import OpenAPI spec |
+| GET/PUT/DELETE | `/admin/services/:id` | Get/update/delete service |
+| GET | `/admin/services/:id/spec` | Get stored OpenAPI spec |
 
 ## Observability
 

@@ -1,5 +1,5 @@
 use axum::extract::{Path, Query, State};
-use axum::Json;
+use axum::{Extension, Json};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
@@ -7,9 +7,7 @@ use std::net::IpAddr;
 use uuid::Uuid;
 
 use crate::errors::AppError;
-
-/// Maximum spec response size (10 MB).
-const MAX_SPEC_RESPONSE_BYTES: usize = 10 * 1024 * 1024;
+use crate::AppSettings;
 
 /// Check if an IP address is private/reserved (SSRF protection).
 fn is_private_ip(ip: &IpAddr) -> bool {
@@ -83,6 +81,7 @@ pub struct ImportRequest {
     pub url: Option<String>,
     pub spec_content: Option<String>,
     pub namespace: String,
+    pub server_url: Option<String>,
     pub description: Option<String>,
     pub tags: Option<Vec<String>>,
     pub status: Option<String>,
@@ -131,17 +130,43 @@ pub struct ListResponse<T> {
 
 /// Extract base path, host, port, and TLS from the first server URL in an OpenAPI spec.
 /// `source_url` is used as a base when the spec's server URL is relative.
+/// `override_url` is a user-provided fallback when the spec has no server info.
 fn parse_spec_server(
     spec: &serde_json::Value,
     source_url: &str,
+    override_url: Option<&str>,
 ) -> Result<(String, String, u16, bool), AppError> {
-    let server_url = spec
+    // Try OpenAPI 3.x `servers[0].url` first, then fall back to Swagger 2.0 `host`/`basePath`/`schemes`
+    let server_url_string;
+    let server_url = if let Some(url) = spec
         .get("servers")
         .and_then(|s| s.as_array())
         .and_then(|a| a.first())
         .and_then(|s| s.get("url"))
         .and_then(|u| u.as_str())
-        .ok_or_else(|| AppError::Validation("Spec must have at least one server URL".into()))?;
+    {
+        url
+    } else if let Some(host) = spec.get("host").and_then(|h| h.as_str()) {
+        // Swagger 2.0: construct URL from host, basePath, and schemes
+        let scheme = spec
+            .get("schemes")
+            .and_then(|s| s.as_array())
+            .and_then(|a| a.first())
+            .and_then(|s| s.as_str())
+            .unwrap_or("https");
+        let base_path = spec
+            .get("basePath")
+            .and_then(|b| b.as_str())
+            .unwrap_or("");
+        server_url_string = format!("{}://{}{}", scheme, host, base_path);
+        &server_url_string
+    } else if let Some(url) = override_url.filter(|u| !u.is_empty()) {
+        url
+    } else {
+        return Err(AppError::Validation(
+            "Spec has no server URL. Provide a server_url or use a spec with servers[] (OpenAPI 3.x) or host (Swagger 2.0).".into(),
+        ));
+    };
 
     // Try parsing as absolute URL first; fall back to resolving against source_url
     let parsed = match url::Url::parse(server_url) {
@@ -200,8 +225,10 @@ fn slugify(input: &str) -> String {
 
 pub async fn import_service(
     State(pool): State<PgPool>,
+    Extension(settings): Extension<AppSettings>,
     Json(body): Json<ImportRequest>,
 ) -> Result<(axum::http::StatusCode, Json<ServiceResponse>), AppError> {
+    let max_spec_bytes = settings.max_spec_size_bytes;
     // Input length validation
     if body.namespace.len() > 255 {
         return Err(AppError::Validation("namespace must be 255 characters or fewer".into()));
@@ -254,10 +281,10 @@ pub async fn import_service(
 
             // Enforce response size limit
             if let Some(cl) = resp.content_length() {
-                if cl as usize > MAX_SPEC_RESPONSE_BYTES {
+                if cl as usize > max_spec_bytes {
                     return Err(AppError::Validation(format!(
                         "Spec response too large ({} bytes, max {})",
-                        cl, MAX_SPEC_RESPONSE_BYTES
+                        cl, max_spec_bytes
                     )));
                 }
             }
@@ -267,11 +294,11 @@ pub async fn import_service(
                 .await
                 .map_err(|e| AppError::Internal(format!("Failed to read spec body: {}", e)))?;
 
-            if bytes.len() > MAX_SPEC_RESPONSE_BYTES {
+            if bytes.len() > max_spec_bytes {
                 return Err(AppError::Validation(format!(
                     "Spec response too large ({} bytes, max {})",
                     bytes.len(),
-                    MAX_SPEC_RESPONSE_BYTES
+                    max_spec_bytes
                 )));
             }
 
@@ -291,8 +318,20 @@ pub async fn import_service(
     let spec: serde_json::Value = serde_json::from_slice(&spec_bytes)
         .map_err(|e| AppError::Validation(format!("Invalid JSON in spec: {}", e)))?;
 
+    // Validate that spec has at least one endpoint
+    let has_paths = spec
+        .get("paths")
+        .and_then(|p| p.as_object())
+        .is_some_and(|p| !p.is_empty());
+    if !has_paths {
+        return Err(AppError::Validation(
+            "Spec has no endpoints — paths object is empty or missing".into(),
+        ));
+    }
+
     // Extract server info
-    let (base_path, host, port, tls) = parse_spec_server(&spec, &spec_url)?;
+    let (base_path, host, port, tls) =
+        parse_spec_server(&spec, &spec_url, body.server_url.as_deref())?;
 
     // Check if namespace already exists
     let existing: Option<shared::models::Service> =
