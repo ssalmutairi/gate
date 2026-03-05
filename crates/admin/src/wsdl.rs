@@ -84,6 +84,8 @@ pub fn parse_wsdl(xml: &str) -> Result<WsdlParseResult, String> {
 
     // XSD elements: element_name → XsdElement
     let mut xsd_elements: HashMap<String, XsdElement> = HashMap::new();
+    // Named complex types: type_name → Vec<XsdField>
+    let mut xsd_complex_types: HashMap<String, Vec<XsdField>> = HashMap::new();
     // Messages: message_name → MessagePart
     let mut messages: HashMap<String, MessagePart> = HashMap::new();
     // PortType operations
@@ -98,6 +100,7 @@ pub fn parse_wsdl(xml: &str) -> Result<WsdlParseResult, String> {
     let mut current_element_fields: Vec<XsdField> = Vec::new();
     let mut in_complex_type = false;
     let mut in_sequence = false;
+    let mut current_complex_type_name: Option<String> = None;
     let mut in_message = false;
     let mut current_message_name = String::new();
     let mut in_port_type = false;
@@ -117,7 +120,8 @@ pub fn parse_wsdl(xml: &str) -> Result<WsdlParseResult, String> {
 
     loop {
         match reader.read_event_into(&mut buf) {
-            Ok(Event::Start(ref e)) | Ok(Event::Empty(ref e)) => {
+            Ok(ref evt @ Event::Start(ref e)) | Ok(ref evt @ Event::Empty(ref e)) => {
+                let is_empty = matches!(evt, Event::Empty(_));
                 let tag_name = String::from_utf8_lossy(e.name().as_ref()).to_string();
                 let local = strip_ns(&tag_name).to_string();
 
@@ -159,9 +163,14 @@ pub fn parse_wsdl(xml: &str) -> Result<WsdlParseResult, String> {
                     }
                     "element" if in_schema && !in_complex_type => {
                         if let Some(name) = get_attr("name") {
-                            current_element_name = Some(name);
-                            current_element_fields.clear();
-                            _schema_depth += 1;
+                            if is_empty {
+                                // Self-closing element (e.g. <xs:element name="..." type="..." />)
+                                // Don't set current_element_name — nothing to collect.
+                            } else {
+                                current_element_name = Some(name);
+                                current_element_fields.clear();
+                                _schema_depth += 1;
+                            }
                         }
                     }
                     "element" if in_schema && in_sequence => {
@@ -175,6 +184,11 @@ pub fn parse_wsdl(xml: &str) -> Result<WsdlParseResult, String> {
                     }
                     "complexType" if in_schema => {
                         in_complex_type = true;
+                        // Track named standalone complex types
+                        if current_element_name.is_none() {
+                            current_complex_type_name = get_attr("name");
+                            current_element_fields.clear();
+                        }
                     }
                     "sequence" if in_complex_type => {
                         in_sequence = true;
@@ -269,6 +283,13 @@ pub fn parse_wsdl(xml: &str) -> Result<WsdlParseResult, String> {
                         }
                     }
                     "complexType" if in_schema => {
+                        // Store standalone named complex types
+                        if let Some(ct_name) = current_complex_type_name.take() {
+                            if !current_element_fields.is_empty() {
+                                xsd_complex_types.insert(ct_name, current_element_fields.clone());
+                                current_element_fields.clear();
+                            }
+                        }
                         in_complex_type = false;
                         in_sequence = false;
                     }
@@ -361,9 +382,9 @@ pub fn parse_wsdl(xml: &str) -> Result<WsdlParseResult, String> {
 
         // Build JSON schemas from XSD elements
         let (input_schema_props, input_meta_schema) =
-            build_schema_from_element(&xsd_elements, &input_element_name);
+            build_schema_from_element(&xsd_elements, &xsd_complex_types, &input_element_name);
         let (output_schema_props, output_meta_schema) =
-            build_schema_from_element(&xsd_elements, &output_element_name);
+            build_schema_from_element(&xsd_elements, &xsd_complex_types, &output_element_name);
 
         // OpenAPI path: POST /{operation_name}
         let path = format!("/{}", op.name);
@@ -455,9 +476,20 @@ pub fn parse_wsdl(xml: &str) -> Result<WsdlParseResult, String> {
     })
 }
 
+/// Resolve an XSD type name to a complex type's fields (if it is a known complex type).
+fn resolve_complex_type<'a>(
+    complex_types: &'a HashMap<String, Vec<XsdField>>,
+    xsd_type: &str,
+) -> Option<&'a Vec<XsdField>> {
+    let local = strip_ns(xsd_type);
+    complex_types.get(local)
+}
+
 /// Build OpenAPI schema properties and metadata schema from an XSD element.
+/// Resolves fields whose type references a named complex type into nested objects.
 fn build_schema_from_element(
     elements: &HashMap<String, XsdElement>,
+    complex_types: &HashMap<String, Vec<XsdField>>,
     element_name: &str,
 ) -> (Map<String, Value>, Map<String, Value>) {
     let mut openapi_props = Map::new();
@@ -465,18 +497,45 @@ fn build_schema_from_element(
 
     if let Some(el) = elements.get(element_name) {
         for field in &el.fields {
-            let (type_str, format) = xsd_to_openapi_type(&field.xsd_type);
-            let mut prop = Map::new();
-            prop.insert("type".into(), json!(type_str));
-            if let Some(fmt) = format {
-                prop.insert("format".into(), json!(fmt));
-            }
-            openapi_props.insert(field.name.clone(), Value::Object(prop.clone()));
-            meta_schema.insert(field.name.clone(), json!({"type": type_str}));
+            build_field_schema(complex_types, field, &mut openapi_props, &mut meta_schema);
         }
     }
 
     (openapi_props, meta_schema)
+}
+
+/// Recursively build schema for a single field, resolving complex type references.
+fn build_field_schema(
+    complex_types: &HashMap<String, Vec<XsdField>>,
+    field: &XsdField,
+    openapi_props: &mut Map<String, Value>,
+    meta_schema: &mut Map<String, Value>,
+) {
+    if let Some(ct_fields) = resolve_complex_type(complex_types, &field.xsd_type) {
+        // This field references a complex type — expand as nested object
+        let mut nested_props = Map::new();
+        let mut nested_meta = Map::new();
+        for child in ct_fields {
+            build_field_schema(complex_types, child, &mut nested_props, &mut nested_meta);
+        }
+        openapi_props.insert(
+            field.name.clone(),
+            json!({"type": "object", "properties": nested_props}),
+        );
+        meta_schema.insert(
+            field.name.clone(),
+            json!({"type": "object", "properties": nested_meta}),
+        );
+    } else {
+        let (type_str, format) = xsd_to_openapi_type(&field.xsd_type);
+        let mut prop = Map::new();
+        prop.insert("type".into(), json!(type_str));
+        if let Some(fmt) = format {
+            prop.insert("format".into(), json!(fmt));
+        }
+        openapi_props.insert(field.name.clone(), Value::Object(prop));
+        meta_schema.insert(field.name.clone(), json!({"type": type_str}));
+    }
 }
 
 /// Check if content looks like a WSDL document.

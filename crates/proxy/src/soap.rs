@@ -37,27 +37,9 @@ pub fn json_to_soap_xml(
         .write_event(Event::Start(BytesStart::new(&element_tag)))
         .map_err(|e| format!("XML write error: {}", e))?;
 
-    // Write each field
+    // Write each field (recursively for nested objects)
     if let Some(obj) = json_body.as_object() {
-        for (key, value) in obj {
-            let field_tag = format!("tns:{}", key);
-            writer
-                .write_event(Event::Start(BytesStart::new(&field_tag)))
-                .map_err(|e| format!("XML write error: {}", e))?;
-            let text = match value {
-                Value::String(s) => s.clone(),
-                Value::Number(n) => n.to_string(),
-                Value::Bool(b) => b.to_string(),
-                Value::Null => String::new(),
-                _ => value.to_string(),
-            };
-            writer
-                .write_event(Event::Text(BytesText::new(&text)))
-                .map_err(|e| format!("XML write error: {}", e))?;
-            writer
-                .write_event(Event::End(BytesEnd::new(&field_tag)))
-                .map_err(|e| format!("XML write error: {}", e))?;
-        }
+        write_json_fields_as_xml(&mut writer, obj, "tns")?;
     }
 
     // </tns:{input_element}>
@@ -76,6 +58,60 @@ pub fn json_to_soap_xml(
         .map_err(|e| format!("XML write error: {}", e))?;
 
     Ok(writer.into_inner().into_inner())
+}
+
+/// Recursively write JSON object fields as XML elements.
+fn write_json_fields_as_xml<W: std::io::Write>(
+    writer: &mut Writer<W>,
+    obj: &Map<String, Value>,
+    ns_prefix: &str,
+) -> Result<(), String> {
+    for (key, value) in obj {
+        let field_tag = format!("{}:{}", ns_prefix, key);
+        writer
+            .write_event(Event::Start(BytesStart::new(&field_tag)))
+            .map_err(|e| format!("XML write error: {}", e))?;
+
+        match value {
+            Value::Object(nested) => {
+                write_json_fields_as_xml(writer, nested, ns_prefix)?;
+            }
+            Value::Array(arr) => {
+                for item in arr {
+                    if let Value::Object(item_obj) = item {
+                        write_json_fields_as_xml(writer, item_obj, ns_prefix)?;
+                    } else {
+                        let text = value_to_text(item);
+                        writer
+                            .write_event(Event::Text(BytesText::new(&text)))
+                            .map_err(|e| format!("XML write error: {}", e))?;
+                    }
+                }
+            }
+            _ => {
+                let text = value_to_text(value);
+                writer
+                    .write_event(Event::Text(BytesText::new(&text)))
+                    .map_err(|e| format!("XML write error: {}", e))?;
+            }
+        }
+
+        writer
+            .write_event(Event::End(BytesEnd::new(&field_tag)))
+            .map_err(|e| format!("XML write error: {}", e))?;
+    }
+    Ok(())
+}
+
+/// Convert a JSON value to its text representation for XML.
+fn value_to_text(value: &Value) -> String {
+    match value {
+        Value::String(s) => s.clone(),
+        Value::Number(n) => n.to_string(),
+        Value::Bool(b) => b.to_string(),
+        Value::Null => String::new(),
+        _ => value.to_string(),
+    }
 }
 
 /// Convert a SOAP XML response into a JSON object.
