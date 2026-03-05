@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.3] - 2026-03-06
+
+### Fixed
+
+- **WSDL Complex Type Resolution** — WSDL parser now resolves standalone named `complexType` definitions into nested object schemas; fields referencing complex types were incorrectly shown as `string` instead of expanded objects with their child fields
+- **Self-Closing XSD Elements** — Self-closing `<xs:element ... />` tags at schema level no longer break parsing of subsequent standalone complex types
+- **Nested SOAP XML** — Proxy JSON→SOAP XML builder now recursively writes nested JSON objects as XML elements instead of serializing them as raw JSON strings
+
 ## [1.6.2] - 2026-03-05
 
 ### Fixed

@@ -32,7 +32,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: admin
-          image: registry.lab/apps/gate:1.6.2
+          image: registry.lab/apps/gate:1.6.3
           command: ["/usr/local/bin/gate-admin"]
           securityContext:
             allowPrivilegeEscalation: false
