@@ -102,18 +102,12 @@ jobs:
           tar czf "${ARCHIVE}.tar.gz" "${ARCHIVE}"
           shasum -a 256 "${ARCHIVE}.tar.gz" > "${ARCHIVE}.tar.gz.sha256"
 
-          # Portable as a separate download
-          STANDALONE="gate-portable-${TAG}-${{ matrix.target }}"
-          cp target/${{ matrix.target }}/release/portable "${STANDALONE}"
-          shasum -a 256 "${STANDALONE}" > "${STANDALONE}.sha256"
-
       - uses: actions/upload-artifact@v4
         with:
           name: archive-${{ matrix.target }}
           path: |
             gate-*.tar.gz
             gate-*.tar.gz.sha256
-            gate-portable-*
           retention-days: 1
 
   release:
@@ -136,5 +130,4 @@ jobs:
           generate_release_notes: true
           files: |
             gate-*.tar.gz
-            gate-portable-*
             SHA256SUMS.txt

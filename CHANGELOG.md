@@ -18,7 +18,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **CLI Arguments** — Portable binary accepts `--admin-port`, `--proxy-port`, `--metrics-port`, `--db`, `--token`, and `--log-level` flags to override defaults without environment variables
-- **Portable Direct Download** — Release workflow publishes `gate-portable` as a separate single-binary download per platform alongside the full archive
 
 ## [1.7.0] - 2026-03-06
 
