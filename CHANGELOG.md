@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-03-06
+
+### Added
+
+- **Standalone Mode** — Single binary (`gate-standalone`) with embedded SQLite, Pingora proxy, and Axum admin API in one process — zero external dependencies required
+- **In-Memory Request Stats** — Standalone tracks total requests, error rate, average latency, and P95 latency in memory; `/admin/stats` returns live aggregate counters instead of zeros
+- **Standalone Defaults** — Runs out of the box with no env vars: `DATABASE_URL` defaults to `sqlite://gate.db`, `ADMIN_TOKEN` defaults to `changeme`
+- **Release Includes Standalone** — Install script, GitHub Actions release workflow, and Docker image now include `gate-standalone` alongside `gate-proxy` and `gate-admin`
+
+### Fixed
+
+- **Admin Service Import Tests** — Fixed 5 failing tests that used empty `paths` object, which is now validated as non-empty
+- **Proxy Test Poison Cascade** — Replaced `Mutex::lock().unwrap()` with `unwrap_or_else(|e| e.into_inner())` in proxy config and logging tests to prevent cascade failures when the test database is unavailable
+
 ## [1.6.4] - 2026-03-06
 
 ### Fixed

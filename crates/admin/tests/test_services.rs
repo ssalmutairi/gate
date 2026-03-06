@@ -271,7 +271,7 @@ async fn import_service_with_inline_spec() {
         "openapi": "3.0.0",
         "info": {"title": "Test API", "version": "1.0"},
         "servers": [{"url": "https://api.example.com/v1"}],
-        "paths": {}
+        "paths": {"/health": {"get": {"summary": "Health check"}}}
     });
 
     let payload = json!({
@@ -300,7 +300,7 @@ async fn reimport_same_hash_returns_409() {
         "openapi": "3.0.0",
         "info": {"title": "Dup API", "version": "1.0"},
         "servers": [{"url": "https://api.example.com/v1"}],
-        "paths": {}
+        "paths": {"/health": {"get": {"summary": "Health check"}}}
     });
 
     let payload = json!({
@@ -335,7 +335,7 @@ async fn reimport_different_hash_bumps_version() {
         "openapi": "3.0.0",
         "info": {"title": "Version API", "version": "1.0"},
         "servers": [{"url": "https://api.example.com/v1"}],
-        "paths": {}
+        "paths": {"/health": {"get": {"summary": "Health check"}}}
     });
 
     let payload_v1 = json!({
@@ -417,7 +417,7 @@ async fn no_servers_in_spec_returns_400() {
     let spec = json!({
         "openapi": "3.0.0",
         "info": {"title": "No Servers", "version": "1.0"},
-        "paths": {}
+        "paths": {"/health": {"get": {"summary": "Health check"}}}
     });
 
     let payload = json!({
@@ -441,7 +441,7 @@ async fn get_service_spec_returns_json() {
         "openapi": "3.0.0",
         "info": {"title": "Spec Test", "version": "1.0"},
         "servers": [{"url": "https://api.example.com"}],
-        "paths": {}
+        "paths": {"/health": {"get": {"summary": "Health check"}}}
     });
 
     // Import a service first
@@ -495,7 +495,7 @@ async fn list_services_pagination() {
             "openapi": "3.0.0",
             "info": {"title": ns, "version": "1.0"},
             "servers": [{"url": "https://api.example.com"}],
-            "paths": {}
+            "paths": {"/health": {"get": {"summary": "Health check"}}}
         });
         let payload = json!({
             "namespace": ns,

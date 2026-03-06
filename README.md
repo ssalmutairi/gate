@@ -9,10 +9,9 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.6.0-blue" alt="Version" />
-  <img src="https://img.shields.io/badge/coverage-92%25-brightgreen" alt="Coverage" />
-  <img src="https://img.shields.io/badge/tests-196%20passed-brightgreen" alt="Tests" />
-  <img src="https://img.shields.io/badge/rust-1.93-orange" alt="Rust" />
+  <img src="https://img.shields.io/badge/version-1.7.0-blue" alt="Version" />
+  <img src="https://img.shields.io/badge/tests-301%20passed-brightgreen" alt="Tests" />
+  <img src="https://img.shields.io/badge/rust-1.86-orange" alt="Rust" />
   <img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="License" />
   <a href="https://github.com/ssalmutairi/gate/releases/latest"><img src="https://img.shields.io/github/v/release/ssalmutairi/gate" alt="Release" /></a>
 </p>
@@ -43,6 +42,7 @@
 - **OpenAPI Schema Viewer** - Resolved request/response schemas with interactive "Try It" panel for testing endpoints directly from the dashboard
 - **Service Import** - Import OpenAPI/Swagger specs or WSDL files via URL, file upload, or paste
 - **Redis State Backend** - Optional distributed rate limiting and circuit breaker sync for multi-instance deployments
+- **Standalone Mode** - Single binary with embedded SQLite — zero external dependencies, no PostgreSQL or Redis required
 - **Kubernetes Ready** - Helm chart and plain YAML manifests with PostgreSQL and Redis
 - **Cross-Platform Binaries** - Precompiled releases for Linux and macOS (x86_64 + aarch64)
 - **Docker Compose** - One-command deployment of the full stack
@@ -105,6 +105,20 @@ When enabled, PostgreSQL request logging is disabled entirely. Gate sends NDJSON
 
 ## Quick Start
 
+### Standalone Mode (Easiest)
+
+A single binary with embedded SQLite — no PostgreSQL, no Redis, no external dependencies.
+
+```bash
+# Build and run
+cargo run --bin standalone
+
+# Or with Docker
+docker run -p 8080:8080 -p 9000:9000 -v gate-data:/data gate:latest /usr/local/bin/gate-standalone
+```
+
+Open http://localhost:9000 for the dashboard. Proxy runs on :8080. Data persists in `gate.db`.
+
 ### Install (Linux / macOS)
 
 ```bash
@@ -114,7 +128,7 @@ curl -fsSL https://raw.githubusercontent.com/ssalmutairi/gate/main/install.sh | 
 Or download a specific version:
 
 ```bash
-VERSION=v1.6.0 curl -fsSL https://raw.githubusercontent.com/ssalmutairi/gate/main/install.sh | bash
+VERSION=v1.7.0 curl -fsSL https://raw.githubusercontent.com/ssalmutairi/gate/main/install.sh | bash
 ```
 
 This installs `gate-proxy` and `gate-admin` to `/usr/local/bin`. Set `DATABASE_URL` and run `gate-admin` to get started — the dashboard is available at `http://localhost:9000`.
@@ -140,9 +154,9 @@ Open http://localhost:9000 to access the dashboard.
 
 #### Prerequisites
 
-- Rust (1.93+)
+- Rust (1.86+)
 - Node.js (20+)
-- Docker (for PostgreSQL)
+- Docker (for PostgreSQL — not needed for standalone mode)
 
 #### 1. Start PostgreSQL
 
@@ -204,7 +218,7 @@ curl http://localhost:8080/api/get
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DATABASE_URL` | (required) | PostgreSQL connection string |
+| `DATABASE_URL` | (required) | PostgreSQL connection string (standalone: `sqlite://gate.db`) |
 | `PROXY_PORT` | `8080` | Proxy listening port |
 | `ADMIN_PORT` | `9000` | Admin API listening port |
 | `ADMIN_BIND_ADDR` | `127.0.0.1` | Admin API bind address |
@@ -262,64 +276,60 @@ Metrics exposed:
 ## Testing
 
 ```bash
-# All Rust tests (96 unit + integration tests, requires PostgreSQL)
+# Standalone tests (24 tests, no external dependencies)
+cargo test -p standalone
+
+# Shared library tests (7 tests)
+cargo test -p shared
+
+# All Rust tests (requires PostgreSQL for admin/proxy integration tests)
 cargo test --workspace -- --test-threads=1
 
-# E2E tests (9 scenarios, requires PostgreSQL + built binaries)
+# E2E tests (10 scenarios, requires PostgreSQL + built binaries)
 bash tests/e2e/run.sh
 
-# Dashboard tests
+# Dashboard tests (45 tests)
 cd dashboard && npm test
 
 # Combined coverage report (unit + E2E)
 bash scripts/coverage.sh
 ```
 
-### Coverage
+### Test Summary
 
-Combined unit + integration + E2E coverage via `cargo-llvm-cov`:
-
-| Component | Lines | Functions |
-|-----------|-------|-----------|
-| **Overall** | **92.0%** | **89.5%** |
-| `router.rs` | 100% | 100% |
-| `lb.rs` | 99.1% | 100% |
-| `proxy/main.rs` | 98.9% | 100% |
-| `admin/main.rs` | 98.3% | 100% |
-| `api_keys.rs` | 97.0% | 81.8% |
-| `logging.rs` | 96.4% | 100% |
-| `proxy/config.rs` | 96.6% | 100% |
-| `routes.rs` | 96.5% | 84.6% |
-| `rate_limits.rs` | 95.5% | 100% |
-| `shared/config.rs` | 94.9% | 66.7% |
-| `service.rs` | 94.4% | 84.2% |
-| `upstreams.rs` | 93.1% | 89.5% |
-| `header_rules.rs` | 93.6% | 88.9% |
-| `errors.rs` | 91.5% | 100% |
-| `services.rs` | 85.2% | 83.6% |
-| `metrics.rs` | 85.7% | 88.9% |
+| Component | Tests | Requires |
+|-----------|-------|----------|
+| standalone (unit + e2e) | 27 | Nothing (in-memory SQLite) |
+| shared | 7 | Nothing |
+| admin (unit) | 37 | Nothing |
+| admin (integration) | 65 | PostgreSQL |
+| proxy | 120 | PostgreSQL |
+| dashboard | 45 | Nothing |
+| e2e (bash) | 10 | PostgreSQL + built binaries |
+| **Total** | **311** | |
 
 ## Project Structure
 
 ```
 gate/
   crates/
-    proxy/     - Pingora-based reverse proxy (SOAP/JSON translation, Elastic APM)
-    admin/     - Axum admin API server (WSDL parser, service import)
-    shared/    - Shared models and configuration
-  dashboard/   - React frontend (Vite + TailwindCSS)
-  migrations/  - SQL migration files
-  charts/      - Helm chart for Kubernetes deployment
-  deploy/      - Plain Kubernetes YAML manifests
-  prometheus/  - Prometheus configuration
-  grafana/     - Grafana dashboards and provisioning
+    proxy/       - Pingora-based reverse proxy (SOAP/JSON translation, Elastic APM)
+    admin/       - Axum admin API server (WSDL parser, service import)
+    standalone/  - Single binary with embedded SQLite (admin + proxy, no external deps)
+    shared/      - Shared models and configuration
+  dashboard/     - React frontend (Vite + TailwindCSS)
+  migrations/    - SQL migration files (PostgreSQL)
+  charts/        - Helm chart for Kubernetes deployment
+  deploy/        - Plain Kubernetes YAML manifests
+  prometheus/    - Prometheus configuration
+  grafana/       - Grafana dashboards and provisioning
 ```
 
 ## Tech Stack
 
 - **Proxy**: [Pingora](https://github.com/cloudflare/pingora) (Cloudflare's Rust proxy framework)
 - **Admin API**: [Axum](https://github.com/tokio-rs/axum) with SQLx
-- **Database**: PostgreSQL 16
+- **Database**: PostgreSQL 16 (full mode) or SQLite (standalone mode)
 - **Dashboard**: React 19 + Vite + TailwindCSS v4 + TanStack Query
 - **Metrics**: Prometheus + Grafana
 - **APM**: Elastic APM (optional)

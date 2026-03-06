@@ -18,24 +18,28 @@ COPY crates/ crates/
 COPY migrations/ migrations/
 COPY --from=dashboard-builder /app/dashboard/dist dashboard/dist
 
-RUN cargo build --release --bin proxy --bin admin --features redis-backend
+RUN cargo build --release --bin proxy --bin admin --bin standalone --features redis-backend
 
 # Stage 3: Runtime
 FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y ca-certificates curl && rm -rf /var/lib/apt/lists/*
 
-RUN useradd -r -s /bin/false gate
+RUN useradd -r -s /bin/false gate && \
+    mkdir -p /data && chown gate:gate /data
 
 COPY --from=builder /app/target/release/proxy /usr/local/bin/gate-proxy
 COPY --from=builder /app/target/release/admin /usr/local/bin/gate-admin
+COPY --from=builder /app/target/release/standalone /usr/local/bin/gate-standalone
 COPY migrations/ /app/migrations/
 COPY entrypoint.sh /app/entrypoint.sh
 
 USER gate
 WORKDIR /app
 
-EXPOSE 8080 9000 9091
+EXPOSE 8080 9000 9090 9091
+
+VOLUME ["/data"]
 
 HEALTHCHECK --interval=10s --timeout=5s --retries=3 \
   CMD curl -f http://localhost:9000/admin/health || exit 1

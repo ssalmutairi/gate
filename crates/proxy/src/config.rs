@@ -230,7 +230,7 @@ mod tests {
 
     #[tokio::test]
     async fn load_config_empty_db() {
-        let _lock = DB_LOCK.lock().unwrap();
+        let _lock = DB_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let pool = setup_test_pool().await;
         let config = load_config(&pool).await;
         assert!(config.routes.is_empty());
@@ -243,7 +243,7 @@ mod tests {
 
     #[tokio::test]
     async fn load_config_with_data() {
-        let _lock = DB_LOCK.lock().unwrap();
+        let _lock = DB_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let pool = setup_test_pool().await;
 
         // Insert upstream
@@ -267,7 +267,7 @@ mod tests {
 
     #[tokio::test]
     async fn load_config_skips_inactive() {
-        let _lock = DB_LOCK.lock().unwrap();
+        let _lock = DB_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let pool = setup_test_pool().await;
 
         // Active upstream
@@ -295,7 +295,7 @@ mod tests {
 
     #[tokio::test]
     async fn load_config_loads_api_keys_and_rate_limits() {
-        let _lock = DB_LOCK.lock().unwrap();
+        let _lock = DB_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let pool = setup_test_pool().await;
 
         // Insert upstream and route

@@ -63,11 +63,13 @@ echo "Installing binaries to ${INSTALL_DIR}..."
 if [ -w "$INSTALL_DIR" ]; then
     cp "${EXTRACT_DIR}/gate-proxy" "${INSTALL_DIR}/"
     cp "${EXTRACT_DIR}/gate-admin" "${INSTALL_DIR}/"
-    chmod +x "${INSTALL_DIR}/gate-proxy" "${INSTALL_DIR}/gate-admin"
+    cp "${EXTRACT_DIR}/gate-standalone" "${INSTALL_DIR}/"
+    chmod +x "${INSTALL_DIR}/gate-proxy" "${INSTALL_DIR}/gate-admin" "${INSTALL_DIR}/gate-standalone"
 else
     sudo cp "${EXTRACT_DIR}/gate-proxy" "${INSTALL_DIR}/"
     sudo cp "${EXTRACT_DIR}/gate-admin" "${INSTALL_DIR}/"
-    sudo chmod +x "${INSTALL_DIR}/gate-proxy" "${INSTALL_DIR}/gate-admin"
+    sudo cp "${EXTRACT_DIR}/gate-standalone" "${INSTALL_DIR}/"
+    sudo chmod +x "${INSTALL_DIR}/gate-proxy" "${INSTALL_DIR}/gate-admin" "${INSTALL_DIR}/gate-standalone"
 fi
 
 # Install migrations
@@ -83,8 +85,13 @@ fi
 echo ""
 echo "Gate ${VERSION} installed successfully!"
 echo ""
-echo "  gate-proxy  → ${INSTALL_DIR}/gate-proxy"
-echo "  gate-admin  → ${INSTALL_DIR}/gate-admin"
-echo "  migrations  → ${MIGRATIONS_DIR}/"
+echo "  gate-proxy      → ${INSTALL_DIR}/gate-proxy"
+echo "  gate-admin      → ${INSTALL_DIR}/gate-admin"
+echo "  gate-standalone → ${INSTALL_DIR}/gate-standalone"
+echo "  migrations      → ${MIGRATIONS_DIR}/"
 echo ""
-echo "Set DATABASE_URL and run gate-admin to get started."
+echo "Quick start (standalone, no dependencies):"
+echo "  gate-standalone"
+echo ""
+echo "Full mode (requires PostgreSQL):"
+echo "  Set DATABASE_URL and run gate-admin + gate-proxy"

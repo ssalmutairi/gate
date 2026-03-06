@@ -4,10 +4,11 @@ members = [
     "crates/proxy",
     "crates/admin",
     "crates/shared",
+    "crates/standalone",
 ]
 
 [workspace.package]
-version = "1.6.4"
+version = "1.7.0"
 edition = "2021"
 license = "Apache-2.0"
 

@@ -76,11 +76,11 @@ jobs:
 
       - name: Build (native)
         if: ${{ !matrix.use_cross }}
-        run: cargo build --release --target ${{ matrix.target }} --bin proxy --bin admin
+        run: cargo build --release --target ${{ matrix.target }} --bin proxy --bin admin --bin standalone
 
       - name: Build (cross)
         if: ${{ matrix.use_cross }}
-        run: cross build --release --target ${{ matrix.target }} --bin proxy --bin admin
+        run: cross build --release --target ${{ matrix.target }} --bin proxy --bin admin --bin standalone
 
       - name: Package archive
         shell: bash
@@ -90,6 +90,7 @@ jobs:
           mkdir -p "${ARCHIVE}"
           cp target/${{ matrix.target }}/release/proxy "${ARCHIVE}/gate-proxy"
           cp target/${{ matrix.target }}/release/admin "${ARCHIVE}/gate-admin"
+          cp target/${{ matrix.target }}/release/standalone "${ARCHIVE}/gate-standalone"
           cp -r migrations/ "${ARCHIVE}/migrations"
           tar czf "${ARCHIVE}.tar.gz" "${ARCHIVE}"
           shasum -a 256 "${ARCHIVE}.tar.gz" > "${ARCHIVE}.tar.gz.sha256"

@@ -478,7 +478,7 @@ mod tests {
 
     #[tokio::test]
     async fn flush_batch_inserts_rows() {
-        let _lock = DB_LOCK.lock().unwrap();
+        let _lock = DB_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let pool = setup_test_pool().await;
         let mut buffer = vec![make_entry("GET", "/single-insert", 200)];
         flush_batch_pg(&pool, &mut buffer).await;
@@ -491,7 +491,7 @@ mod tests {
 
     #[tokio::test]
     async fn flush_batch_multiple_entries() {
-        let _lock = DB_LOCK.lock().unwrap();
+        let _lock = DB_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let pool = setup_test_pool().await;
         let mut buffer = vec![
             make_entry("GET", "/multi-a", 200),
@@ -508,7 +508,7 @@ mod tests {
 
     #[tokio::test]
     async fn batch_writer_flushes_on_channel_close() {
-        let _lock = DB_LOCK.lock().unwrap();
+        let _lock = DB_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let pool = setup_test_pool().await;
         let (tx, rx) = mpsc::channel(100);
 
@@ -527,7 +527,7 @@ mod tests {
 
     #[tokio::test]
     async fn batch_writer_empty_channel_exits() {
-        let _lock = DB_LOCK.lock().unwrap();
+        let _lock = DB_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let pool = setup_test_pool().await;
         let (_tx, rx) = mpsc::channel::<RequestLogEntry>(100);
 
