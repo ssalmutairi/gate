@@ -25,3 +25,4 @@ dashboard/coverage/
 
 # Internal process docs
 .process/
+*.profraw
