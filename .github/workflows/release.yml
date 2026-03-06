@@ -82,6 +82,13 @@ jobs:
         if: ${{ matrix.use_cross }}
         run: cross build --release --target ${{ matrix.target }} --bin proxy --bin admin --bin portable
 
+      - name: Codesign macOS binaries
+        if: runner.os == 'macOS'
+        run: |
+          for bin in proxy admin portable; do
+            codesign --force --sign - target/${{ matrix.target }}/release/${bin}
+          done
+
       - name: Package archive
         shell: bash
         run: |
@@ -95,7 +102,7 @@ jobs:
           tar czf "${ARCHIVE}.tar.gz" "${ARCHIVE}"
           shasum -a 256 "${ARCHIVE}.tar.gz" > "${ARCHIVE}.tar.gz.sha256"
 
-          # Standalone as a separate download
+          # Portable as a separate download
           STANDALONE="gate-portable-${TAG}-${{ matrix.target }}"
           cp target/${{ matrix.target }}/release/portable "${STANDALONE}"
           shasum -a 256 "${STANDALONE}" > "${STANDALONE}.sha256"

@@ -72,6 +72,11 @@ else
     sudo chmod +x "${INSTALL_DIR}/gate-proxy" "${INSTALL_DIR}/gate-admin" "${INSTALL_DIR}/gate-portable"
 fi
 
+# Remove macOS quarantine attribute
+if [ "$OS" = "Darwin" ]; then
+    xattr -d com.apple.quarantine "${INSTALL_DIR}/gate-proxy" "${INSTALL_DIR}/gate-admin" "${INSTALL_DIR}/gate-portable" 2>/dev/null || true
+fi
+
 # Install migrations
 echo "Installing migrations to ${MIGRATIONS_DIR}..."
 if [ -w "$(dirname "$MIGRATIONS_DIR")" ]; then
