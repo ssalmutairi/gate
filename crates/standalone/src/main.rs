@@ -1,4 +1,5 @@
 use arc_swap::ArcSwap;
+use clap::Parser;
 use proxy_core::lb::ConnectionTracker;
 use proxy_core::service::{GatewayProxy, RequestLogEntry, LOG_CHANNEL_CAPACITY};
 use pingora::prelude::*;
@@ -20,13 +21,51 @@ mod wsdl;
 
 use shared::config::AppConfig;
 
+#[derive(Parser)]
+#[command(name = "gate-standalone", version, about = "Gate API Gateway — standalone mode")]
+struct Cli {
+    /// Admin API port
+    #[arg(long, short = 'a')]
+    admin_port: Option<u16>,
+
+    /// Proxy port
+    #[arg(long, short = 'p')]
+    proxy_port: Option<u16>,
+
+    /// Metrics port
+    #[arg(long, short = 'm')]
+    metrics_port: Option<u16>,
+
+    /// SQLite database path
+    #[arg(long, short = 'd')]
+    db: Option<String>,
+
+    /// Admin token
+    #[arg(long, short = 't')]
+    token: Option<String>,
+
+    /// Log level (trace, debug, info, warn, error)
+    #[arg(long, short = 'l')]
+    log_level: Option<String>,
+}
+
 fn main() {
     // Install rustls crypto provider for TLS upstream connections
     rustls::crypto::ring::default_provider()
         .install_default()
         .expect("Failed to install rustls crypto provider");
 
-    // Standalone defaults: SQLite DB and a default admin token
+    let cli = Cli::parse();
+
+    // CLI args override env vars; standalone defaults apply last
+    if let Some(v) = cli.admin_port { std::env::set_var("ADMIN_PORT", v.to_string()); }
+    if let Some(v) = cli.proxy_port { std::env::set_var("PROXY_PORT", v.to_string()); }
+    if let Some(v) = cli.metrics_port { std::env::set_var("METRICS_PORT", v.to_string()); }
+    if let Some(v) = cli.db { std::env::set_var("DATABASE_URL", v); }
+    if let Some(v) = cli.token { std::env::set_var("ADMIN_TOKEN", v); }
+    if let Some(v) = cli.log_level { std::env::set_var("LOG_LEVEL", v); }
+
+    // Standalone defaults (only if not set by CLI or env)
     if std::env::var("DATABASE_URL").is_err() {
         std::env::set_var("DATABASE_URL", "sqlite://gate.db");
     }

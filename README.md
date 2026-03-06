@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.7.0-blue" alt="Version" />
+  <img src="https://img.shields.io/badge/version-1.7.1-blue" alt="Version" />
   <img src="https://img.shields.io/badge/tests-301%20passed-brightgreen" alt="Tests" />
   <img src="https://img.shields.io/badge/rust-1.86-orange" alt="Rust" />
   <img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="License" />
@@ -119,6 +119,26 @@ docker run -p 8080:8080 -p 9000:9000 -v gate-data:/data gate:latest /usr/local/b
 
 Open http://localhost:9000 for the dashboard. Proxy runs on :8080. Data persists in `gate.db`.
 
+#### CLI Options
+
+```bash
+gate-standalone [OPTIONS]
+
+Options:
+  -a, --admin-port <PORT>      Admin API port [default: 9000]
+  -p, --proxy-port <PORT>      Proxy port [default: 8080]
+  -m, --metrics-port <PORT>    Metrics port [default: 9091]
+  -d, --db <PATH>              SQLite database path [default: sqlite://gate.db]
+  -t, --token <TOKEN>          Admin token [default: changeme]
+  -l, --log-level <LEVEL>      Log level: trace, debug, info, warn, error [default: info]
+```
+
+Example with custom ports:
+
+```bash
+gate-standalone --admin-port 9100 --proxy-port 9200
+```
+
 ### Install (Linux / macOS)
 
 ```bash
@@ -128,10 +148,10 @@ curl -fsSL https://raw.githubusercontent.com/ssalmutairi/gate/main/install.sh | 
 Or download a specific version:
 
 ```bash
-VERSION=v1.7.0 curl -fsSL https://raw.githubusercontent.com/ssalmutairi/gate/main/install.sh | bash
+VERSION=v1.7.1 curl -fsSL https://raw.githubusercontent.com/ssalmutairi/gate/main/install.sh | bash
 ```
 
-This installs `gate-proxy` and `gate-admin` to `/usr/local/bin`. Set `DATABASE_URL` and run `gate-admin` to get started — the dashboard is available at `http://localhost:9000`.
+This installs `gate-proxy`, `gate-admin`, and `gate-standalone` to `/usr/local/bin`. Run `gate-standalone` for zero-config standalone mode, or set `DATABASE_URL` and run `gate-admin` + `gate-proxy` for full mode with PostgreSQL.
 
 ### Docker Compose
 
@@ -218,11 +238,11 @@ curl http://localhost:8080/api/get
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DATABASE_URL` | (required) | PostgreSQL connection string (standalone: `sqlite://gate.db`) |
+| `DATABASE_URL` | (required) | PostgreSQL connection string (standalone default: `sqlite://gate.db`) |
 | `PROXY_PORT` | `8080` | Proxy listening port |
 | `ADMIN_PORT` | `9000` | Admin API listening port |
 | `ADMIN_BIND_ADDR` | `127.0.0.1` | Admin API bind address |
-| `ADMIN_TOKEN` | (none) | Admin API authentication token |
+| `ADMIN_TOKEN` | (none) | Admin API authentication token (standalone default: `changeme`) |
 | `LOG_LEVEL` | `info` | Log level (trace, debug, info, warn, error) |
 | `CONFIG_POLL_INTERVAL_SECS` | `5` | Config reload interval |
 | `HEALTH_CHECK_INTERVAL_SECS` | `10` | Health check interval |

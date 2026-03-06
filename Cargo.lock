@@ -3498,6 +3498,7 @@ dependencies = [
  "axum",
  "bytes",
  "chrono",
+ "clap",
  "dashmap",
  "dotenvy",
  "futures",
