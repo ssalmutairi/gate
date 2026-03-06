@@ -23,7 +23,7 @@
 ## Architecture
 
 <p align="center">
-  <img src="diagram.png" alt="Gate Architecture" width="700" />
+  <img src="diagram.svg" alt="Gate Architecture" width="700" />
 </p>
 
 ## Features
