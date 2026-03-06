@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.2] - 2026-03-06
+
+### Changed
+
+- **Rename to gate-portable** — Binary renamed from `gate-standalone` to `gate-portable` for clarity; crate, K8s manifests, install script, release workflow, and all docs updated
+
 ## [1.7.1] - 2026-03-06
 
 ### Added

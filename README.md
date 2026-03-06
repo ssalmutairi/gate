@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.7.1-blue" alt="Version" />
+  <img src="https://img.shields.io/badge/version-1.7.2-blue" alt="Version" />
   <img src="https://img.shields.io/badge/tests-301%20passed-brightgreen" alt="Tests" />
   <img src="https://img.shields.io/badge/rust-1.86-orange" alt="Rust" />
   <img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="License" />
@@ -148,7 +148,7 @@ curl -fsSL https://raw.githubusercontent.com/ssalmutairi/gate/main/install.sh | 
 Or download a specific version:
 
 ```bash
-VERSION=v1.7.1 curl -fsSL https://raw.githubusercontent.com/ssalmutairi/gate/main/install.sh | bash
+VERSION=v1.7.2 curl -fsSL https://raw.githubusercontent.com/ssalmutairi/gate/main/install.sh | bash
 ```
 
 This installs `gate-proxy`, `gate-admin`, and `gate-portable` to `/usr/local/bin`. Run `gate-portable` for zero-config portable mode, or set `DATABASE_URL` and run `gate-admin` + `gate-proxy` for full mode with PostgreSQL.
