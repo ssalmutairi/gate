@@ -23,6 +23,11 @@ dashboard/coverage/
 # Docker
 *.log
 
+# SQLite
+*.db
+*.db-shm
+*.db-wal
+
 # Internal process docs
 .process/
 *.profraw
