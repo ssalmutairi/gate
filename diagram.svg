@@ -1,0 +1,190 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 750" font-family="system-ui, -apple-system, sans-serif">
+  <defs>
+    <filter id="shadow" x="-2%" y="-2%" width="104%" height="104%">
+      <feDropShadow dx="1" dy="2" stdDeviation="3" flood-opacity="0.1"/>
+    </filter>
+    <marker id="arrow" viewBox="0 0 10 6" refX="10" refY="3" markerWidth="10" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 3 L 0 6 z" fill="#888"/>
+    </marker>
+    <marker id="arrow-blue" viewBox="0 0 10 6" refX="10" refY="3" markerWidth="10" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 3 L 0 6 z" fill="#4A90D9"/>
+    </marker>
+    <marker id="arrow-orange" viewBox="0 0 10 6" refX="10" refY="3" markerWidth="10" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 3 L 0 6 z" fill="#E8A838"/>
+    </marker>
+    <marker id="arrow-green" viewBox="0 0 10 6" refX="10" refY="3" markerWidth="10" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 3 L 0 6 z" fill="#27AE60"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1100" height="750" fill="#FAFAFA" rx="8"/>
+
+  <!-- Title -->
+  <text x="550" y="32" text-anchor="middle" font-size="20" font-weight="bold" fill="#333">Gate Architecture</text>
+
+  <!-- ========== FULL MODE (left side) ========== -->
+  <text x="310" y="62" text-anchor="middle" font-size="14" font-weight="600" fill="#666">Full Mode (PostgreSQL)</text>
+
+  <!-- Admin + Dashboard box -->
+  <rect x="170" y="78" width="280" height="65" rx="10" fill="#F5A623" filter="url(#shadow)" opacity="0.9"/>
+  <text x="310" y="100" text-anchor="middle" font-size="14" font-weight="bold" fill="#fff">🖥 Admin + Dashboard</text>
+  <text x="310" y="118" text-anchor="middle" font-size="11" fill="#fff">Axum · React · :9000</text>
+  <text x="310" y="132" text-anchor="middle" font-size="10" fill="rgba(255,255,255,0.8)">CRUD API + UI</text>
+
+  <!-- Gate Proxy box -->
+  <rect x="120" y="165" width="380" height="220" rx="12" fill="#E8F5E9" stroke="#4CAF50" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="310" y="190" text-anchor="middle" font-size="15" font-weight="bold" fill="#2E7D32">⚡ Gate Proxy (Pingora)</text>
+  <text x="310" y="207" text-anchor="middle" font-size="11" fill="#4CAF50">:8080</text>
+
+  <!-- Proxy features - left column -->
+  <text x="155" y="232" font-size="10" fill="#555">🔑 API Key Auth</text>
+  <text x="155" y="250" font-size="10" fill="#555">⏱ Rate Limiting</text>
+  <text x="155" y="268" font-size="10" fill="#555">⚖ Load Balancing</text>
+  <text x="155" y="286" font-size="10" fill="#555">🔌 Circuit Breaker</text>
+  <text x="155" y="304" font-size="10" fill="#555">🧼 SOAP/JSON Translation</text>
+
+  <!-- Proxy features - right column -->
+  <text x="335" y="232" font-size="10" fill="#555">💚 Health Checks</text>
+  <text x="335" y="250" font-size="10" fill="#555">🔄 Hot Reload</text>
+  <text x="335" y="268" font-size="10" fill="#555">📝 Request Logging</text>
+  <text x="335" y="286" font-size="10" fill="#555">📊 Metrics Export</text>
+  <text x="335" y="304" font-size="10" fill="#555">🗜 Response Compression</text>
+
+  <!-- Proxy sub-features -->
+  <text x="155" y="330" font-size="9" fill="#777">Dynamic Routing · Path Rewriting</text>
+  <text x="155" y="345" font-size="9" fill="#777">Header Rules · IP Rules · Caching</text>
+  <text x="155" y="360" font-size="9" fill="#777">Host Routing · Request Size Limits</text>
+  <text x="380" y="360" font-size="9" fill="#888">Metrics :9091</text>
+
+  <!-- Clients -->
+  <rect x="10" y="250" width="80" height="40" rx="20" fill="#E3F2FD" stroke="#90CAF9" stroke-width="1"/>
+  <text x="50" y="274" text-anchor="middle" font-size="11" font-weight="600" fill="#1565C0">🌐 Clients</text>
+
+  <!-- Arrow: Clients -> Proxy -->
+  <line x1="90" y1="270" x2="118" y2="270" stroke="#4A90D9" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+
+  <!-- Admin -> Proxy (dashed) -->
+  <line x1="310" y1="143" x2="310" y2="163" stroke="#888" stroke-width="1" stroke-dasharray="4,3"/>
+
+  <!-- Upstreams -->
+  <rect x="540" y="195" width="120" height="32" rx="8" fill="#FCE4EC" stroke="#E91E63" stroke-width="1"/>
+  <text x="600" y="215" text-anchor="middle" font-size="10" font-weight="600" fill="#C2185B">🔴 Upstream A</text>
+
+  <rect x="540" y="245" width="120" height="32" rx="8" fill="#FCE4EC" stroke="#E91E63" stroke-width="1"/>
+  <text x="600" y="265" text-anchor="middle" font-size="10" font-weight="600" fill="#C2185B">🔴 Upstream B</text>
+
+  <rect x="540" y="295" width="120" height="32" rx="8" fill="#FCE4EC" stroke="#E91E63" stroke-width="1"/>
+  <text x="600" y="315" text-anchor="middle" font-size="10" font-weight="600" fill="#C2185B">🔴 SOAP Service</text>
+
+  <!-- Proxy -> Upstreams -->
+  <line x1="500" y1="211" x2="538" y2="211" stroke="#E91E63" stroke-width="1" marker-end="url(#arrow)"/>
+  <line x1="500" y1="261" x2="538" y2="261" stroke="#E91E63" stroke-width="1" marker-end="url(#arrow)"/>
+  <line x1="500" y1="311" x2="538" y2="311" stroke="#E91E63" stroke-width="1" marker-end="url(#arrow)"/>
+
+  <!-- Infrastructure row -->
+  <!-- PostgreSQL -->
+  <rect x="170" y="410" width="130" height="50" rx="10" fill="#CE93D8" filter="url(#shadow)"/>
+  <text x="235" y="434" text-anchor="middle" font-size="12" font-weight="bold" fill="#fff">🐘 PostgreSQL</text>
+  <text x="235" y="450" text-anchor="middle" font-size="9" fill="rgba(255,255,255,0.9)">Config · Logs</text>
+
+  <!-- Redis (optional) -->
+  <rect x="320" y="410" width="130" height="50" rx="10" fill="#EF9A9A" filter="url(#shadow)"/>
+  <text x="385" y="434" text-anchor="middle" font-size="12" font-weight="bold" fill="#fff">🔴 Redis</text>
+  <text x="385" y="450" text-anchor="middle" font-size="9" fill="rgba(255,255,255,0.9)">Rate Limits · CB (opt)</text>
+
+  <!-- Proxy -> PostgreSQL -->
+  <line x1="280" y1="385" x2="250" y2="408" stroke="#9C27B0" stroke-width="1" stroke-dasharray="4,3"/>
+  <!-- Proxy -> Redis -->
+  <line x1="340" y1="385" x2="370" y2="408" stroke="#E57373" stroke-width="1" stroke-dasharray="4,3"/>
+
+  <!-- Prometheus -->
+  <rect x="10" y="410" width="120" height="50" rx="10" fill="#FFF9C4" stroke="#F9A825" stroke-width="1" filter="url(#shadow)"/>
+  <text x="70" y="434" text-anchor="middle" font-size="11" font-weight="bold" fill="#F57F17">📈 Prometheus</text>
+  <text x="70" y="450" text-anchor="middle" font-size="9" fill="#F57F17">Scrape :9091</text>
+
+  <!-- Elastic APM (optional) -->
+  <rect x="490" y="410" width="130" height="50" rx="10" fill="#B3E5FC" stroke="#0288D1" stroke-width="1" filter="url(#shadow)"/>
+  <text x="555" y="434" text-anchor="middle" font-size="11" font-weight="bold" fill="#01579B">📡 Elastic APM</text>
+  <text x="555" y="450" text-anchor="middle" font-size="9" fill="#01579B">Logs (optional)</text>
+
+  <!-- Grafana -->
+  <rect x="10" y="475" width="120" height="35" rx="8" fill="#FFE0B2" stroke="#FF9800" stroke-width="1"/>
+  <text x="70" y="497" text-anchor="middle" font-size="10" font-weight="600" fill="#E65100">📊 Grafana</text>
+
+  <!-- Prometheus -> Grafana -->
+  <line x1="70" y1="460" x2="70" y2="475" stroke="#FF9800" stroke-width="1" marker-end="url(#arrow-orange)"/>
+
+  <!-- ========== STANDALONE MODE (right side) ========== -->
+
+  <!-- Standalone outer box -->
+  <rect x="700" y="60" width="370" height="430" rx="14" fill="#FFF8E1" stroke="#FFB300" stroke-width="2" stroke-dasharray="8,4" filter="url(#shadow)"/>
+  <text x="885" y="85" text-anchor="middle" font-size="14" font-weight="700" fill="#F57F17">Standalone Mode</text>
+  <text x="885" y="102" text-anchor="middle" font-size="10" fill="#F9A825">Single Binary · Zero Dependencies</text>
+
+  <!-- Standalone Admin -->
+  <rect x="730" y="115" width="310" height="55" rx="10" fill="#F5A623" opacity="0.85"/>
+  <text x="885" y="138" text-anchor="middle" font-size="13" font-weight="bold" fill="#fff">🖥 Admin + Dashboard</text>
+  <text x="885" y="155" text-anchor="middle" font-size="10" fill="rgba(255,255,255,0.85)">Axum · React · :9000 (default)</text>
+
+  <!-- Standalone Proxy -->
+  <rect x="730" y="185" width="310" height="175" rx="10" fill="#E8F5E9" stroke="#4CAF50" stroke-width="1"/>
+  <text x="885" y="208" text-anchor="middle" font-size="13" font-weight="bold" fill="#2E7D32">⚡ Gate Proxy (Pingora)</text>
+  <text x="885" y="223" text-anchor="middle" font-size="10" fill="#4CAF50">:8080 (default)</text>
+
+  <!-- Standalone proxy features -->
+  <text x="750" y="248" font-size="9.5" fill="#555">🔑 API Key Auth</text>
+  <text x="750" y="264" font-size="9.5" fill="#555">⏱ Rate Limiting</text>
+  <text x="750" y="280" font-size="9.5" fill="#555">⚖ Load Balancing</text>
+  <text x="750" y="296" font-size="9.5" fill="#555">🔌 Circuit Breaker</text>
+  <text x="750" y="312" font-size="9.5" fill="#555">🧼 SOAP/JSON</text>
+
+  <text x="900" y="248" font-size="9.5" fill="#555">💚 Health Checks</text>
+  <text x="900" y="264" font-size="9.5" fill="#555">🔄 Hot Reload</text>
+  <text x="900" y="280" font-size="9.5" fill="#555">📊 In-Memory Stats</text>
+  <text x="900" y="296" font-size="9.5" fill="#555">📈 Metrics Export</text>
+  <text x="900" y="312" font-size="9.5" fill="#555">🗜 Compression</text>
+
+  <text x="750" y="340" font-size="9" fill="#777">Dynamic Routing · Path Rewriting · Header/IP Rules</text>
+
+  <!-- SQLite -->
+  <rect x="790" y="380" width="190" height="45" rx="10" fill="#A5D6A7" stroke="#388E3C" stroke-width="1"/>
+  <text x="885" y="403" text-anchor="middle" font-size="12" font-weight="bold" fill="#1B5E20">🗄 SQLite (embedded)</text>
+  <text x="885" y="418" text-anchor="middle" font-size="9" fill="#2E7D32">Config · gate.db</text>
+
+  <!-- Standalone Proxy -> SQLite -->
+  <line x1="885" y1="360" x2="885" y2="378" stroke="#388E3C" stroke-width="1" stroke-dasharray="3,3"/>
+
+  <!-- Standalone Metrics -->
+  <rect x="730" y="440" width="140" height="35" rx="8" fill="#FFF9C4" stroke="#F9A825" stroke-width="1"/>
+  <text x="800" y="462" text-anchor="middle" font-size="10" font-weight="600" fill="#F57F17">📈 Metrics :9091</text>
+
+  <!-- CLI args note -->
+  <rect x="730" y="488" width="310" height="32" rx="6" fill="#EFEBE9" stroke="#BCAAA4" stroke-width="1"/>
+  <text x="885" y="500" text-anchor="middle" font-size="9" fill="#5D4037">CLI: --admin-port --proxy-port --db --token --log-level</text>
+  <text x="885" y="513" text-anchor="middle" font-size="8.5" fill="#8D6E63">Defaults: sqlite://gate.db · token: changeme</text>
+
+  <!-- ========== Divider ========== -->
+  <line x1="680" y1="55" x2="680" y2="530" stroke="#DDD" stroke-width="1" stroke-dasharray="6,4"/>
+  <text x="680" y="545" text-anchor="middle" font-size="9" fill="#BBB">OR</text>
+
+  <!-- ========== Legend ========== -->
+  <rect x="10" y="560" width="1080" height="55" rx="8" fill="#F5F5F5" stroke="#E0E0E0" stroke-width="1"/>
+  <text x="30" y="580" font-size="10" font-weight="600" fill="#666">Legend:</text>
+  <rect x="90" y="570" width="12" height="12" rx="3" fill="#F5A623"/>
+  <text x="108" y="580" font-size="9" fill="#666">Admin API</text>
+  <rect x="180" y="570" width="12" height="12" rx="3" fill="#E8F5E9" stroke="#4CAF50" stroke-width="0.5"/>
+  <text x="198" y="580" font-size="9" fill="#666">Proxy</text>
+  <rect x="250" y="570" width="12" height="12" rx="3" fill="#FCE4EC" stroke="#E91E63" stroke-width="0.5"/>
+  <text x="268" y="580" font-size="9" fill="#666">Upstreams</text>
+  <rect x="340" y="570" width="12" height="12" rx="3" fill="#CE93D8"/>
+  <text x="358" y="580" font-size="9" fill="#666">PostgreSQL</text>
+  <rect x="430" y="570" width="12" height="12" rx="3" fill="#A5D6A7" stroke="#388E3C" stroke-width="0.5"/>
+  <text x="448" y="580" font-size="9" fill="#666">SQLite</text>
+  <rect x="500" y="570" width="12" height="12" rx="3" fill="#EF9A9A"/>
+  <text x="518" y="580" font-size="9" fill="#666">Redis (opt)</text>
+  <rect x="595" y="570" width="12" height="12" rx="3" fill="#B3E5FC" stroke="#0288D1" stroke-width="0.5"/>
+  <text x="613" y="580" font-size="9" fill="#666">Elastic APM (opt)</text>
+
+  <text x="30" y="604" font-size="9" fill="#999">Full mode requires PostgreSQL. Standalone runs with zero external dependencies. Both modes support SOAP/WSDL, load balancing, and all proxy features.</text>
+</svg>
