@@ -11,17 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **CLI Arguments** — Standalone binary accepts `--admin-port`, `--proxy-port`, `--metrics-port`, `--db`, `--token`, and `--log-level` flags to override defaults without environment variables
-- **Standalone Direct Download** — Release workflow publishes `gate-standalone` as a separate single-binary download per platform alongside the full archive
+- **CLI Arguments** — Portable binary accepts `--admin-port`, `--proxy-port`, `--metrics-port`, `--db`, `--token`, and `--log-level` flags to override defaults without environment variables
+- **Portable Direct Download** — Release workflow publishes `gate-portable` as a separate single-binary download per platform alongside the full archive
 
 ## [1.7.0] - 2026-03-06
 
 ### Added
 
-- **Standalone Mode** — Single binary (`gate-standalone`) with embedded SQLite, Pingora proxy, and Axum admin API in one process — zero external dependencies required
-- **In-Memory Request Stats** — Standalone tracks total requests, error rate, average latency, and P95 latency in memory; `/admin/stats` returns live aggregate counters instead of zeros
-- **Standalone Defaults** — Runs out of the box with no env vars: `DATABASE_URL` defaults to `sqlite://gate.db`, `ADMIN_TOKEN` defaults to `changeme`
-- **Release Includes Standalone** — Install script, GitHub Actions release workflow, and Docker image now include `gate-standalone` alongside `gate-proxy` and `gate-admin`
+- **Portable Mode** — Single binary (`gate-portable`) with embedded SQLite, Pingora proxy, and Axum admin API in one process — zero external dependencies required
+- **In-Memory Request Stats** — Portable tracks total requests, error rate, average latency, and P95 latency in memory; `/admin/stats` returns live aggregate counters instead of zeros
+- **Portable Defaults** — Runs out of the box with no env vars: `DATABASE_URL` defaults to `sqlite://gate.db`, `ADMIN_TOKEN` defaults to `changeme`
+- **Release Includes Portable** — Install script, GitHub Actions release workflow, and Docker image now include `gate-portable` alongside `gate-proxy` and `gate-admin`
 
 ### Fixed
 

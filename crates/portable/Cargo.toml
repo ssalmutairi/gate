@@ -1,11 +1,11 @@
 [package]
-name = "standalone"
+name = "portable"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [[bin]]
-name = "standalone"
+name = "portable"
 path = "src/main.rs"
 
 [dependencies]

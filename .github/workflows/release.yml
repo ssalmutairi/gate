@@ -76,11 +76,11 @@ jobs:
 
       - name: Build (native)
         if: ${{ !matrix.use_cross }}
-        run: cargo build --release --target ${{ matrix.target }} --bin proxy --bin admin --bin standalone
+        run: cargo build --release --target ${{ matrix.target }} --bin proxy --bin admin --bin portable
 
       - name: Build (cross)
         if: ${{ matrix.use_cross }}
-        run: cross build --release --target ${{ matrix.target }} --bin proxy --bin admin --bin standalone
+        run: cross build --release --target ${{ matrix.target }} --bin proxy --bin admin --bin portable
 
       - name: Package archive
         shell: bash
@@ -90,14 +90,14 @@ jobs:
           mkdir -p "${ARCHIVE}"
           cp target/${{ matrix.target }}/release/proxy "${ARCHIVE}/gate-proxy"
           cp target/${{ matrix.target }}/release/admin "${ARCHIVE}/gate-admin"
-          cp target/${{ matrix.target }}/release/standalone "${ARCHIVE}/gate-standalone"
+          cp target/${{ matrix.target }}/release/portable "${ARCHIVE}/gate-portable"
           cp -r migrations/ "${ARCHIVE}/migrations"
           tar czf "${ARCHIVE}.tar.gz" "${ARCHIVE}"
           shasum -a 256 "${ARCHIVE}.tar.gz" > "${ARCHIVE}.tar.gz.sha256"
 
           # Standalone as a separate download
-          STANDALONE="gate-standalone-${TAG}-${{ matrix.target }}"
-          cp target/${{ matrix.target }}/release/standalone "${STANDALONE}"
+          STANDALONE="gate-portable-${TAG}-${{ matrix.target }}"
+          cp target/${{ matrix.target }}/release/portable "${STANDALONE}"
           shasum -a 256 "${STANDALONE}" > "${STANDALONE}.sha256"
 
       - uses: actions/upload-artifact@v4
@@ -106,7 +106,7 @@ jobs:
           path: |
             gate-*.tar.gz
             gate-*.tar.gz.sha256
-            gate-standalone-*
+            gate-portable-*
           retention-days: 1
 
   release:
@@ -129,5 +129,5 @@ jobs:
           generate_release_notes: true
           files: |
             gate-*.tar.gz
-            gate-standalone-*
+            gate-portable-*
             SHA256SUMS.txt

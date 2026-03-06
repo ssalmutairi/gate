@@ -1,12 +1,12 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: gate-standalone
+  name: gate-portable
   labels:
-    app: gate-standalone
+    app: gate-portable
 spec:
   selector:
-    app: gate-standalone
+    app: gate-portable
   ports:
     - name: proxy
       port: 8080

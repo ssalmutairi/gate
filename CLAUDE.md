@@ -10,7 +10,7 @@ Before committing a version change, update ALL of these:
 4. **`deploy/kubernetes/admin-deployment.yaml`** — container image tag
 5. **`deploy/kubernetes/proxy-deployment.yaml`** — container image tag
 6. **`charts/gate/Chart.yaml`** — `appVersion` field
-7. Run `cargo test -p standalone` to verify tests pass
+7. Run `cargo test -p portable` to verify tests pass
 
 ## Post-push Checklist (for releases)
 
@@ -25,7 +25,7 @@ After pushing to main:
 - **Standalone defaults**: `DATABASE_URL=sqlite://gate.db`, `ADMIN_TOKEN=changeme`
 - **Rust version**: 1.86+
 - **Test commands**:
-  - `cargo test -p standalone` — 27 tests, no dependencies
+  - `cargo test -p portable` — 27 tests, no dependencies
   - `cargo test -p shared` — 7 tests, no dependencies
   - `cargo test -p admin` — requires PostgreSQL
   - `cargo test -p proxy` — requires PostgreSQL
@@ -33,7 +33,7 @@ After pushing to main:
 
 ## File Conventions
 
-- Standalone crate: `crates/standalone/` — self-contained, does NOT modify admin/proxy/shared crates
-- SQLite migrations: `crates/standalone/migrations/`
+- Standalone crate: `crates/portable/` — self-contained, does NOT modify admin/proxy/shared crates
+- SQLite migrations: `crates/portable/migrations/`
 - PostgreSQL migrations: `migrations/`
 - Dashboard: `dashboard/` (React + Vite + TailwindCSS)

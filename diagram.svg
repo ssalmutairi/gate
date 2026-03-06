@@ -119,7 +119,7 @@
 
   <!-- Standalone outer box -->
   <rect x="700" y="60" width="370" height="430" rx="14" fill="#FFF8E1" stroke="#FFB300" stroke-width="2" stroke-dasharray="8,4" filter="url(#shadow)"/>
-  <text x="885" y="85" text-anchor="middle" font-size="14" font-weight="700" fill="#F57F17">Standalone Mode</text>
+  <text x="885" y="85" text-anchor="middle" font-size="14" font-weight="700" fill="#F57F17">Portable Mode</text>
   <text x="885" y="102" text-anchor="middle" font-size="10" fill="#F9A825">Single Binary · Zero Dependencies</text>
 
   <!-- Standalone Admin -->
@@ -186,5 +186,5 @@
   <rect x="595" y="570" width="12" height="12" rx="3" fill="#B3E5FC" stroke="#0288D1" stroke-width="0.5"/>
   <text x="613" y="580" font-size="9" fill="#666">Elastic APM (opt)</text>
 
-  <text x="30" y="604" font-size="9" fill="#999">Full mode requires PostgreSQL. Standalone runs with zero external dependencies. Both modes support SOAP/WSDL, load balancing, and all proxy features.</text>
+  <text x="30" y="604" font-size="9" fill="#999">Full mode requires PostgreSQL. Portable mode runs with zero external dependencies. Both modes support SOAP/WSDL, load balancing, and all proxy features.</text>
 </svg>

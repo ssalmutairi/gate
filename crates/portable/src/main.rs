@@ -22,7 +22,7 @@ mod wsdl;
 use shared::config::AppConfig;
 
 #[derive(Parser)]
-#[command(name = "gate-standalone", version, about = "Gate API Gateway — standalone mode")]
+#[command(name = "gate-portable", version, about = "Gate API Gateway — portable mode (single binary, zero dependencies)")]
 struct Cli {
     /// Admin API port
     #[arg(long, short = 'a')]
@@ -897,7 +897,7 @@ fn print_banner(config: &AppConfig) {
     let health = format!("every {}s", config.health_check_interval_secs);
     eprintln!();
     eprintln!("  ┌─────────────────────────────────────────┐");
-    eprintln!("  │   Gate Standalone v{}          │", env!("CARGO_PKG_VERSION"));
+    eprintln!("  │   Gate Portable v{}            │", env!("CARGO_PKG_VERSION"));
     eprintln!("  ├─────────────────────────────────────────┤");
     eprintln!("  │  Proxy:   {:<30}│", proxy_addr);
     eprintln!("  │  Admin:   {:<30}│", admin_addr);

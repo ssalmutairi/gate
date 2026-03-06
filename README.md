@@ -42,7 +42,7 @@
 - **OpenAPI Schema Viewer** - Resolved request/response schemas with interactive "Try It" panel for testing endpoints directly from the dashboard
 - **Service Import** - Import OpenAPI/Swagger specs or WSDL files via URL, file upload, or paste
 - **Redis State Backend** - Optional distributed rate limiting and circuit breaker sync for multi-instance deployments
-- **Standalone Mode** - Single binary with embedded SQLite — zero external dependencies, no PostgreSQL or Redis required
+- **Portable Mode** - Single binary with embedded SQLite — zero external dependencies, no PostgreSQL or Redis required
 - **Kubernetes Ready** - Helm chart and plain YAML manifests with PostgreSQL and Redis
 - **Cross-Platform Binaries** - Precompiled releases for Linux and macOS (x86_64 + aarch64)
 - **Docker Compose** - One-command deployment of the full stack
@@ -105,16 +105,16 @@ When enabled, PostgreSQL request logging is disabled entirely. Gate sends NDJSON
 
 ## Quick Start
 
-### Standalone Mode (Easiest)
+### Portable Mode (Easiest)
 
 A single binary with embedded SQLite — no PostgreSQL, no Redis, no external dependencies.
 
 ```bash
 # Build and run
-cargo run --bin standalone
+cargo run --bin portable
 
 # Or with Docker
-docker run -p 8080:8080 -p 9000:9000 -v gate-data:/data gate:latest /usr/local/bin/gate-standalone
+docker run -p 8080:8080 -p 9000:9000 -v gate-data:/data gate:latest /usr/local/bin/gate-portable
 ```
 
 Open http://localhost:9000 for the dashboard. Proxy runs on :8080. Data persists in `gate.db`.
@@ -122,7 +122,7 @@ Open http://localhost:9000 for the dashboard. Proxy runs on :8080. Data persists
 #### CLI Options
 
 ```bash
-gate-standalone [OPTIONS]
+gate-portable [OPTIONS]
 
 Options:
   -a, --admin-port <PORT>      Admin API port [default: 9000]
@@ -136,7 +136,7 @@ Options:
 Example with custom ports:
 
 ```bash
-gate-standalone --admin-port 9100 --proxy-port 9200
+gate-portable --admin-port 9100 --proxy-port 9200
 ```
 
 ### Install (Linux / macOS)
@@ -151,7 +151,7 @@ Or download a specific version:
 VERSION=v1.7.1 curl -fsSL https://raw.githubusercontent.com/ssalmutairi/gate/main/install.sh | bash
 ```
 
-This installs `gate-proxy`, `gate-admin`, and `gate-standalone` to `/usr/local/bin`. Run `gate-standalone` for zero-config standalone mode, or set `DATABASE_URL` and run `gate-admin` + `gate-proxy` for full mode with PostgreSQL.
+This installs `gate-proxy`, `gate-admin`, and `gate-portable` to `/usr/local/bin`. Run `gate-portable` for zero-config portable mode, or set `DATABASE_URL` and run `gate-admin` + `gate-proxy` for full mode with PostgreSQL.
 
 ### Docker Compose
 
@@ -176,7 +176,7 @@ Open http://localhost:9000 to access the dashboard.
 
 - Rust (1.86+)
 - Node.js (20+)
-- Docker (for PostgreSQL — not needed for standalone mode)
+- Docker (for PostgreSQL — not needed for portable mode)
 
 #### 1. Start PostgreSQL
 
@@ -238,11 +238,11 @@ curl http://localhost:8080/api/get
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DATABASE_URL` | (required) | PostgreSQL connection string (standalone default: `sqlite://gate.db`) |
+| `DATABASE_URL` | (required) | PostgreSQL connection string (portable default: `sqlite://gate.db`) |
 | `PROXY_PORT` | `8080` | Proxy listening port |
 | `ADMIN_PORT` | `9000` | Admin API listening port |
 | `ADMIN_BIND_ADDR` | `127.0.0.1` | Admin API bind address |
-| `ADMIN_TOKEN` | (none) | Admin API authentication token (standalone default: `changeme`) |
+| `ADMIN_TOKEN` | (none) | Admin API authentication token (portable default: `changeme`) |
 | `LOG_LEVEL` | `info` | Log level (trace, debug, info, warn, error) |
 | `CONFIG_POLL_INTERVAL_SECS` | `5` | Config reload interval |
 | `HEALTH_CHECK_INTERVAL_SECS` | `10` | Health check interval |
@@ -297,7 +297,7 @@ Metrics exposed:
 
 ```bash
 # Standalone tests (24 tests, no external dependencies)
-cargo test -p standalone
+cargo test -p portable
 
 # Shared library tests (7 tests)
 cargo test -p shared
@@ -319,7 +319,7 @@ bash scripts/coverage.sh
 
 | Component | Tests | Requires |
 |-----------|-------|----------|
-| standalone (unit + e2e) | 27 | Nothing (in-memory SQLite) |
+| portable (unit + e2e) | 27 | Nothing (in-memory SQLite) |
 | shared | 7 | Nothing |
 | admin (unit) | 37 | Nothing |
 | admin (integration) | 65 | PostgreSQL |
@@ -335,7 +335,7 @@ gate/
   crates/
     proxy/       - Pingora-based reverse proxy (SOAP/JSON translation, Elastic APM)
     admin/       - Axum admin API server (WSDL parser, service import)
-    standalone/  - Single binary with embedded SQLite (admin + proxy, no external deps)
+    portable/  - Single binary with embedded SQLite (admin + proxy, no external deps)
     shared/      - Shared models and configuration
   dashboard/     - React frontend (Vite + TailwindCSS)
   migrations/    - SQL migration files (PostgreSQL)
@@ -349,7 +349,7 @@ gate/
 
 - **Proxy**: [Pingora](https://github.com/cloudflare/pingora) (Cloudflare's Rust proxy framework)
 - **Admin API**: [Axum](https://github.com/tokio-rs/axum) with SQLx
-- **Database**: PostgreSQL 16 (full mode) or SQLite (standalone mode)
+- **Database**: PostgreSQL 16 (full mode) or SQLite (portable mode)
 - **Dashboard**: React 19 + Vite + TailwindCSS v4 + TanStack Query
 - **Metrics**: Prometheus + Grafana
 - **APM**: Elastic APM (optional)

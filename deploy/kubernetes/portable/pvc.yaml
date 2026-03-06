@@ -1,9 +1,9 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: gate-standalone-data
+  name: gate-portable-data
   labels:
-    app: gate-standalone
+    app: gate-portable
 spec:
   accessModes:
     - ReadWriteOnce

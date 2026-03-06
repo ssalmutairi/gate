@@ -18,7 +18,7 @@ COPY crates/ crates/
 COPY migrations/ migrations/
 COPY --from=dashboard-builder /app/dashboard/dist dashboard/dist
 
-RUN cargo build --release --bin proxy --bin admin --bin standalone --features redis-backend
+RUN cargo build --release --bin proxy --bin admin --bin portable --features redis-backend
 
 # Stage 3: Runtime
 FROM debian:bookworm-slim
@@ -30,7 +30,7 @@ RUN useradd -r -s /bin/false gate && \
 
 COPY --from=builder /app/target/release/proxy /usr/local/bin/gate-proxy
 COPY --from=builder /app/target/release/admin /usr/local/bin/gate-admin
-COPY --from=builder /app/target/release/standalone /usr/local/bin/gate-standalone
+COPY --from=builder /app/target/release/portable /usr/local/bin/gate-portable
 COPY migrations/ /app/migrations/
 COPY entrypoint.sh /app/entrypoint.sh
 

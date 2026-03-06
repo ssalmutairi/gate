@@ -4,7 +4,7 @@ members = [
     "crates/proxy",
     "crates/admin",
     "crates/shared",
-    "crates/standalone",
+    "crates/portable",
 ]
 
 [workspace.package]

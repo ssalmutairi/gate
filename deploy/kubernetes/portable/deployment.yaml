@@ -1,25 +1,25 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: gate-standalone
+  name: gate-portable
   labels:
-    app: gate-standalone
+    app: gate-portable
 spec:
   replicas: 1
   strategy:
     type: Recreate
   selector:
     matchLabels:
-      app: gate-standalone
+      app: gate-portable
   template:
     metadata:
       labels:
-        app: gate-standalone
+        app: gate-portable
     spec:
       containers:
         - name: gate
           image: gate:latest
-          command: ["/usr/local/bin/gate-standalone"]
+          command: ["/usr/local/bin/gate-portable"]
           ports:
             - name: proxy
               containerPort: 8080
@@ -33,7 +33,7 @@ spec:
             - name: ADMIN_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: gate-standalone-secret
+                  name: gate-portable-secret
                   key: admin-token
             - name: PROXY_PORT
               value: "8080"
@@ -68,4 +68,4 @@ spec:
       volumes:
         - name: data
           persistentVolumeClaim:
-            claimName: gate-standalone-data
+            claimName: gate-portable-data
