@@ -1,8 +1,18 @@
 use crate::proxy_core::soap::SoapServiceMeta;
+use pingora::utils::tls::CertKey;
 use shared::models::{ApiKey, HeaderRule, IpRule, RateLimit, Route, Target, Upstream};
+use shared::tls::{pem_to_der_certs, pem_to_der_key};
 use std::collections::HashMap;
+use std::sync::Arc;
 use subtle::ConstantTimeEq;
 use uuid::Uuid;
+
+/// Pre-parsed TLS materials for an upstream, cached to avoid PEM parsing per request.
+#[derive(Debug, Clone)]
+pub struct UpstreamTlsConfig {
+    pub skip_verify: bool,
+    pub client_cert_key: Option<Arc<CertKey>>,
+}
 
 #[derive(Debug, Clone)]
 pub struct GatewayConfig {
@@ -14,6 +24,7 @@ pub struct GatewayConfig {
     pub header_rules: HashMap<Uuid, Vec<HeaderRule>>,
     pub ip_rules: HashMap<Uuid, Vec<IpRule>>,
     pub soap_services: HashMap<Uuid, SoapServiceMeta>,
+    pub upstream_tls: HashMap<Uuid, UpstreamTlsConfig>,
 }
 
 impl GatewayConfig {
@@ -50,6 +61,8 @@ impl GatewayConfig {
             ip_rules_map.entry(rule.route_id).or_default().push(rule);
         }
 
+        let upstream_tls = build_upstream_tls(&upstreams_map);
+
         Self {
             routes,
             upstreams: upstreams_map,
@@ -59,6 +72,7 @@ impl GatewayConfig {
             header_rules: header_rules_map,
             ip_rules: ip_rules_map,
             soap_services,
+            upstream_tls,
         }
     }
 
@@ -159,6 +173,40 @@ impl GatewayConfig {
     pub fn get_soap_meta(&self, route: &Route) -> Option<&SoapServiceMeta> {
         route.service_id.as_ref().and_then(|sid| self.soap_services.get(sid))
     }
+}
+
+/// Build pre-parsed TLS configs for upstreams that have TLS settings.
+fn build_upstream_tls(upstreams: &HashMap<Uuid, Upstream>) -> HashMap<Uuid, UpstreamTlsConfig> {
+    let mut map = HashMap::new();
+    for (id, upstream) in upstreams {
+        let has_tls_config = upstream.tls_skip_verify
+            || upstream.tls_client_cert.is_some();
+
+        if !has_tls_config {
+            continue;
+        }
+
+        let client_cert_key = match (&upstream.tls_client_cert, &upstream.tls_client_key) {
+            (Some(cert_pem), Some(key_pem)) => {
+                let certs = pem_to_der_certs(cert_pem);
+                let key = pem_to_der_key(key_pem);
+                match (certs.is_empty(), key) {
+                    (false, Some(key_der)) => Some(Arc::new(CertKey::new(certs, key_der))),
+                    _ => {
+                        tracing::warn!(upstream_id = %id, "Failed to parse client cert/key PEM");
+                        None
+                    }
+                }
+            }
+            _ => None,
+        };
+
+        map.insert(*id, UpstreamTlsConfig {
+            skip_verify: upstream.tls_skip_verify,
+            client_cert_key,
+        });
+    }
+    map
 }
 
 fn host_matches(host: &str, pattern: &str) -> bool {

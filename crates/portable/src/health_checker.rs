@@ -2,6 +2,7 @@ use crate::proxy_core::lb::ConnectionTracker;
 use crate::proxy_core::router::GatewayConfig;
 use arc_swap::ArcSwap;
 use shared::models::Target;
+use shared::tls::build_upstream_client;
 use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -20,7 +21,7 @@ pub async fn run_health_checks(
     conn_tracker: Arc<Mutex<ConnectionTracker>>,
     interval_secs: u64,
 ) {
-    let client = reqwest::Client::builder()
+    let default_client = reqwest::Client::builder()
         .timeout(Duration::from_secs(5))
         .no_proxy()
         .build()
@@ -46,6 +47,15 @@ pub async fn run_health_checks(
             all_targets.iter().map(|t| t.id).collect();
         states.retain(|id, _| target_ids.contains(id));
 
+        // Build per-upstream TLS clients fresh each iteration to pick up config changes
+        let upstream_clients: HashMap<Uuid, reqwest::Client> = cfg
+            .upstreams
+            .iter()
+            .filter_map(|(uid, upstream)| {
+                build_upstream_client(upstream).map(|c| (*uid, c))
+            })
+            .collect();
+
         {
             let ids: Vec<Uuid> = all_targets.iter().map(|t| t.id).collect();
             let mut tracker = conn_tracker.lock().unwrap_or_else(|e| e.into_inner());
@@ -57,7 +67,10 @@ pub async fn run_health_checks(
         for target in &all_targets {
             let scheme = if target.tls { "https" } else { "http" };
             let url = format!("{}://{}:{}/", scheme, target.host, target.port);
-            let client = client.clone();
+            let client = upstream_clients
+                .get(&target.upstream_id)
+                .unwrap_or(&default_client)
+                .clone();
             let target_id = target.id;
             check_futures.push(async move {
                 let result = client.get(&url).send().await;

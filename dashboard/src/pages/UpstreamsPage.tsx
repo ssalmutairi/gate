@@ -32,7 +32,7 @@ import {
 } from '../components/ui/select';
 import { EmptyState } from '../components/ui';
 import { toast } from 'sonner';
-import { Plus, Pencil, Trash2, ChevronDown, ChevronRight, Circle } from 'lucide-react';
+import { Plus, Pencil, Trash2, ChevronDown, ChevronRight, Circle, Lock } from 'lucide-react';
 
 export default function UpstreamsPage() {
   const qc = useQueryClient();
@@ -47,6 +47,11 @@ export default function UpstreamsPage() {
   // Upstream form
   const [name, setName] = useState('');
   const [algorithm, setAlgorithm] = useState('round_robin');
+  const [tlsOpen, setTlsOpen] = useState(false);
+  const [tlsCaCert, setTlsCaCert] = useState('');
+  const [tlsClientCert, setTlsClientCert] = useState('');
+  const [tlsClientKey, setTlsClientKey] = useState('');
+  const [tlsSkipVerify, setTlsSkipVerify] = useState(false);
 
   // Target form
   const [targetHost, setTargetHost] = useState('');
@@ -65,6 +70,11 @@ export default function UpstreamsPage() {
     setEditing(null);
     setName('');
     setAlgorithm('round_robin');
+    setTlsCaCert('');
+    setTlsClientCert('');
+    setTlsClientKey('');
+    setTlsSkipVerify(false);
+    setTlsOpen(false);
     setModalOpen(true);
   };
 
@@ -72,6 +82,11 @@ export default function UpstreamsPage() {
     setEditing(upstream);
     setName(upstream.name);
     setAlgorithm(upstream.algorithm);
+    setTlsCaCert(upstream.tls_ca_cert ?? '');
+    setTlsClientCert(upstream.tls_client_cert ?? '');
+    setTlsClientKey(upstream.tls_client_key ?? '');
+    setTlsSkipVerify(upstream.tls_skip_verify);
+    setTlsOpen(!!(upstream.tls_ca_cert || upstream.tls_client_cert || upstream.tls_skip_verify));
     setModalOpen(true);
   };
 
@@ -130,10 +145,16 @@ export default function UpstreamsPage() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    const tlsData = {
+      tls_ca_cert: tlsCaCert || null,
+      tls_client_cert: tlsClientCert || null,
+      tls_client_key: tlsClientKey || null,
+      tls_skip_verify: tlsSkipVerify,
+    };
     if (editing) {
-      updateMut.mutate({ id: editing.id, data: { name, algorithm } });
+      updateMut.mutate({ id: editing.id, data: { name, algorithm, ...tlsData } });
     } else {
-      createMut.mutate({ name, algorithm });
+      createMut.mutate({ name, algorithm, ...tlsData });
     }
   };
 
@@ -178,6 +199,11 @@ export default function UpstreamsPage() {
                   )}
                   <span className="font-medium">{upstream.name}</span>
                   <Badge variant="muted">{upstream.algorithm.replace(/_/g, ' ')}</Badge>
+                  {(upstream.tls_ca_cert || upstream.tls_client_cert || upstream.tls_skip_verify) && (
+                    <Badge variant="muted" className="gap-1">
+                      <Lock className="w-3 h-3" /> TLS
+                    </Badge>
+                  )}
                   <span className="text-xs text-muted-foreground">
                     {upstream.targets?.length ?? 0} target(s)
                   </span>
@@ -269,6 +295,61 @@ export default function UpstreamsPage() {
                   <SelectItem value="least_connections">Least Connections</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+            <div className="border rounded-md">
+              <button
+                type="button"
+                className="flex items-center justify-between w-full px-3 py-2 text-sm font-medium cursor-pointer"
+                onClick={() => setTlsOpen(!tlsOpen)}
+              >
+                <span className="flex items-center gap-1.5">
+                  <Lock className="w-3.5 h-3.5" /> TLS Configuration
+                </span>
+                {tlsOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+              </button>
+              {tlsOpen && (
+                <div className="px-3 pb-3 space-y-3 border-t">
+                  <div className="space-y-1 pt-2">
+                    <Label>CA Certificate</Label>
+                    <textarea
+                      className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono"
+                      value={tlsCaCert}
+                      onChange={(e) => setTlsCaCert(e.target.value)}
+                      placeholder="Paste PEM-encoded CA certificate..."
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Client Certificate</Label>
+                    <textarea
+                      className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono"
+                      value={tlsClientCert}
+                      onChange={(e) => setTlsClientCert(e.target.value)}
+                      placeholder="Paste PEM-encoded client certificate..."
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Client Key</Label>
+                    <textarea
+                      className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono"
+                      value={tlsClientKey}
+                      onChange={(e) => setTlsClientKey(e.target.value)}
+                      placeholder="Paste PEM-encoded private key..."
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="tls-skip-verify"
+                      checked={tlsSkipVerify}
+                      onChange={(e) => setTlsSkipVerify(e.target.checked)}
+                      className="h-4 w-4 rounded border-input"
+                    />
+                    <Label htmlFor="tls-skip-verify" className="text-sm font-normal">
+                      Skip TLS verification
+                    </Label>
+                  </div>
+                </div>
+              )}
             </div>
             <DialogFooter>
               <Button variant="secondary" type="button" onClick={() => setModalOpen(false)}>Cancel</Button>

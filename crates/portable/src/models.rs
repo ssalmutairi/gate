@@ -137,6 +137,10 @@ pub struct SqliteUpstream {
     pub circuit_breaker_threshold: Option<i32>,
     pub circuit_breaker_duration_secs: i32,
     pub active: bool,
+    pub tls_ca_cert: Option<String>,
+    pub tls_client_cert: Option<String>,
+    pub tls_client_key: Option<String>,
+    pub tls_skip_verify: bool,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -150,6 +154,10 @@ impl From<SqliteUpstream> for shared::models::Upstream {
             circuit_breaker_threshold: u.circuit_breaker_threshold,
             circuit_breaker_duration_secs: u.circuit_breaker_duration_secs,
             active: u.active,
+            tls_ca_cert: u.tls_ca_cert,
+            tls_client_cert: u.tls_client_cert,
+            tls_client_key: u.tls_client_key,
+            tls_skip_verify: u.tls_skip_verify,
             created_at: parse_dt(&u.created_at),
             updated_at: parse_dt(&u.updated_at),
         }

@@ -15,6 +15,10 @@ pub struct CreateUpstream {
     pub algorithm: Option<String>,
     pub circuit_breaker_threshold: Option<i32>,
     pub circuit_breaker_duration_secs: Option<i32>,
+    pub tls_ca_cert: Option<String>,
+    pub tls_client_cert: Option<String>,
+    pub tls_client_key: Option<String>,
+    pub tls_skip_verify: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -24,6 +28,10 @@ pub struct UpdateUpstream {
     pub active: Option<bool>,
     pub circuit_breaker_threshold: Option<Option<i32>>,
     pub circuit_breaker_duration_secs: Option<i32>,
+    pub tls_ca_cert: Option<Option<String>>,
+    pub tls_client_cert: Option<Option<String>>,
+    pub tls_client_key: Option<Option<String>>,
+    pub tls_skip_verify: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -42,6 +50,10 @@ pub struct UpstreamResponse {
     pub circuit_breaker_threshold: Option<i32>,
     pub circuit_breaker_duration_secs: i32,
     pub active: bool,
+    pub tls_ca_cert: Option<String>,
+    pub tls_client_cert: Option<String>,
+    pub tls_client_key: Option<String>,
+    pub tls_skip_verify: bool,
     pub targets: Vec<TargetResponse>,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
@@ -56,6 +68,10 @@ impl UpstreamResponse {
             circuit_breaker_threshold: u.circuit_breaker_threshold,
             circuit_breaker_duration_secs: u.circuit_breaker_duration_secs,
             active: u.active,
+            tls_ca_cert: u.tls_ca_cert,
+            tls_client_cert: u.tls_client_cert,
+            tls_client_key: u.tls_client_key,
+            tls_skip_verify: u.tls_skip_verify,
             targets,
             created_at: u.created_at,
             updated_at: u.updated_at,
@@ -196,15 +212,26 @@ pub async fn create_upstream(
     let cb_duration = body.circuit_breaker_duration_secs.unwrap_or(30);
     validate_circuit_breaker(body.circuit_breaker_threshold, cb_duration)?;
 
+    // Validate mTLS: cert and key must be provided together
+    if body.tls_client_cert.is_some() != body.tls_client_key.is_some() {
+        return Err(AppError::Validation("tls_client_cert and tls_client_key must both be provided".into()));
+    }
+
+    let tls_skip_verify = body.tls_skip_verify.unwrap_or(false);
+
     let id = Uuid::new_v4().to_string();
     let row: SqliteUpstream = sqlx::query_as(
-        "INSERT INTO upstreams (id, name, algorithm, circuit_breaker_threshold, circuit_breaker_duration_secs) VALUES (?1, ?2, ?3, ?4, ?5) RETURNING *",
+        "INSERT INTO upstreams (id, name, algorithm, circuit_breaker_threshold, circuit_breaker_duration_secs, tls_ca_cert, tls_client_cert, tls_client_key, tls_skip_verify) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9) RETURNING *",
     )
     .bind(&id)
     .bind(body.name.trim())
     .bind(&algorithm)
     .bind(body.circuit_breaker_threshold)
     .bind(cb_duration)
+    .bind(&body.tls_ca_cert)
+    .bind(&body.tls_client_cert)
+    .bind(&body.tls_client_key)
+    .bind(tls_skip_verify)
     .fetch_one(&pool)
     .await?;
 
@@ -267,14 +294,28 @@ pub async fn update_upstream(
     validate_algorithm(&algorithm)?;
     validate_circuit_breaker(circuit_breaker_threshold, circuit_breaker_duration_secs)?;
 
+    let tls_ca_cert = if let Some(v) = body.tls_ca_cert { v } else { existing.tls_ca_cert };
+    let tls_client_cert = if let Some(v) = body.tls_client_cert { v } else { existing.tls_client_cert };
+    let tls_client_key = if let Some(v) = body.tls_client_key { v } else { existing.tls_client_key };
+    let tls_skip_verify = body.tls_skip_verify.unwrap_or(existing.tls_skip_verify);
+
+    // Validate mTLS: cert and key must be provided together
+    if tls_client_cert.is_some() != tls_client_key.is_some() {
+        return Err(AppError::Validation("tls_client_cert and tls_client_key must both be provided".into()));
+    }
+
     let row: SqliteUpstream = sqlx::query_as(
-        "UPDATE upstreams SET name = ?1, algorithm = ?2, active = ?3, circuit_breaker_threshold = ?4, circuit_breaker_duration_secs = ?5, updated_at = datetime('now') WHERE id = ?6 RETURNING *",
+        "UPDATE upstreams SET name = ?1, algorithm = ?2, active = ?3, circuit_breaker_threshold = ?4, circuit_breaker_duration_secs = ?5, tls_ca_cert = ?6, tls_client_cert = ?7, tls_client_key = ?8, tls_skip_verify = ?9, updated_at = datetime('now') WHERE id = ?10 RETURNING *",
     )
     .bind(&name)
     .bind(&algorithm)
     .bind(active)
     .bind(circuit_breaker_threshold)
     .bind(circuit_breaker_duration_secs)
+    .bind(&tls_ca_cert)
+    .bind(&tls_client_cert)
+    .bind(&tls_client_key)
+    .bind(tls_skip_verify)
     .bind(id.to_string())
     .fetch_one(&pool)
     .await?;

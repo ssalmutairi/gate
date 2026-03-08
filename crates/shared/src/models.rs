@@ -11,6 +11,10 @@ pub struct Upstream {
     pub circuit_breaker_threshold: Option<i32>,
     pub circuit_breaker_duration_secs: i32,
     pub active: bool,
+    pub tls_ca_cert: Option<String>,
+    pub tls_client_cert: Option<String>,
+    pub tls_client_key: Option<String>,
+    pub tls_skip_verify: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

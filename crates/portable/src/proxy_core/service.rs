@@ -441,6 +441,17 @@ impl ProxyHttp for GatewayProxy {
             peer.options.set_http_version(2, 1);
         }
 
+        // Apply per-upstream TLS config
+        if let Some(tls_config) = config.upstream_tls.get(upstream_id) {
+            if tls_config.skip_verify {
+                peer.options.verify_cert = false;
+                peer.options.verify_hostname = false;
+            }
+            if let Some(ref cert_key) = tls_config.client_cert_key {
+                peer.client_cert_key = Some(cert_key.clone());
+            }
+        }
+
         if let Some(ms) = ctx.timeout_ms {
             let timeout = std::time::Duration::from_millis(ms as u64);
             let read_timeout = std::time::Duration::from_millis(

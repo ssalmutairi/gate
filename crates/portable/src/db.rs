@@ -20,18 +20,23 @@ pub async fn create_pool(database_url: &str) -> SqlitePool {
 }
 
 pub async fn run_migrations(pool: &SqlitePool) {
-    let sql = include_str!("../migrations/001_init.sql");
-    for statement in sql.split(';') {
-        let trimmed = statement.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        match sqlx::query(trimmed).execute(pool).await {
-            Ok(_) => {}
-            Err(e) => {
-                let msg = e.to_string();
-                if !msg.contains("already exists") {
-                    tracing::warn!("Migration statement warning: {}", msg);
+    let migrations = [
+        include_str!("../migrations/001_init.sql"),
+        include_str!("../migrations/002_add_upstream_tls.sql"),
+    ];
+    for sql in &migrations {
+        for statement in sql.split(';') {
+            let trimmed = statement.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            match sqlx::query(trimmed).execute(pool).await {
+                Ok(_) => {}
+                Err(e) => {
+                    let msg = e.to_string();
+                    if !msg.contains("already exists") && !msg.contains("duplicate column") {
+                        tracing::warn!("Migration statement warning: {}", msg);
+                    }
                 }
             }
         }

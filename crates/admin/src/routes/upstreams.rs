@@ -20,6 +20,10 @@ pub struct CreateUpstream {
     pub algorithm: Option<String>,
     pub circuit_breaker_threshold: Option<i32>,
     pub circuit_breaker_duration_secs: Option<i32>,
+    pub tls_ca_cert: Option<String>,
+    pub tls_client_cert: Option<String>,
+    pub tls_client_key: Option<String>,
+    pub tls_skip_verify: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -29,6 +33,10 @@ pub struct UpdateUpstream {
     pub active: Option<bool>,
     pub circuit_breaker_threshold: Option<Option<i32>>,
     pub circuit_breaker_duration_secs: Option<i32>,
+    pub tls_ca_cert: Option<Option<String>>,
+    pub tls_client_cert: Option<Option<String>>,
+    pub tls_client_key: Option<Option<String>>,
+    pub tls_skip_verify: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -47,6 +55,10 @@ pub struct UpstreamResponse {
     pub circuit_breaker_threshold: Option<i32>,
     pub circuit_breaker_duration_secs: i32,
     pub active: bool,
+    pub tls_ca_cert: Option<String>,
+    pub tls_client_cert: Option<String>,
+    pub tls_client_key: Option<String>,
+    pub tls_skip_verify: bool,
     pub targets: Vec<TargetResponse>,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
@@ -110,6 +122,10 @@ pub async fn list_upstreams(
             circuit_breaker_threshold: u.circuit_breaker_threshold,
             circuit_breaker_duration_secs: u.circuit_breaker_duration_secs,
             active: u.active,
+            tls_ca_cert: u.tls_ca_cert,
+            tls_client_cert: u.tls_client_cert,
+            tls_client_key: u.tls_client_key,
+            tls_skip_verify: u.tls_skip_verify,
             targets,
             created_at: u.created_at,
             updated_at: u.updated_at,
@@ -153,13 +169,24 @@ pub async fn create_upstream(
         return Err(AppError::Validation("circuit_breaker_duration_secs must be between 5 and 3600".into()));
     }
 
+    // Validate mTLS: cert and key must be provided together
+    if body.tls_client_cert.is_some() != body.tls_client_key.is_some() {
+        return Err(AppError::Validation("tls_client_cert and tls_client_key must both be provided".into()));
+    }
+
+    let tls_skip_verify = body.tls_skip_verify.unwrap_or(false);
+
     let upstream: shared::models::Upstream = sqlx::query_as(
-        "INSERT INTO upstreams (name, algorithm, circuit_breaker_threshold, circuit_breaker_duration_secs) VALUES ($1, $2, $3, $4) RETURNING *",
+        "INSERT INTO upstreams (name, algorithm, circuit_breaker_threshold, circuit_breaker_duration_secs, tls_ca_cert, tls_client_cert, tls_client_key, tls_skip_verify) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *",
     )
     .bind(body.name.trim())
     .bind(&algorithm)
     .bind(body.circuit_breaker_threshold)
     .bind(cb_duration)
+    .bind(&body.tls_ca_cert)
+    .bind(&body.tls_client_cert)
+    .bind(&body.tls_client_key)
+    .bind(tls_skip_verify)
     .fetch_one(&pool)
     .await?;
 
@@ -172,6 +199,10 @@ pub async fn create_upstream(
             circuit_breaker_threshold: upstream.circuit_breaker_threshold,
             circuit_breaker_duration_secs: upstream.circuit_breaker_duration_secs,
             active: upstream.active,
+            tls_ca_cert: upstream.tls_ca_cert,
+            tls_client_cert: upstream.tls_client_cert,
+            tls_client_key: upstream.tls_client_key,
+            tls_skip_verify: upstream.tls_skip_verify,
             targets: vec![],
             created_at: upstream.created_at,
             updated_at: upstream.updated_at,
@@ -203,6 +234,10 @@ pub async fn get_upstream(
         circuit_breaker_threshold: upstream.circuit_breaker_threshold,
         circuit_breaker_duration_secs: upstream.circuit_breaker_duration_secs,
         active: upstream.active,
+        tls_ca_cert: upstream.tls_ca_cert,
+        tls_client_cert: upstream.tls_client_cert,
+        tls_client_key: upstream.tls_client_key,
+        tls_skip_verify: upstream.tls_skip_verify,
         targets,
         created_at: upstream.created_at,
         updated_at: upstream.updated_at,
@@ -252,14 +287,28 @@ pub async fn update_upstream(
         return Err(AppError::Validation("circuit_breaker_duration_secs must be between 5 and 3600".into()));
     }
 
+    let tls_ca_cert = if let Some(v) = body.tls_ca_cert { v } else { existing.tls_ca_cert };
+    let tls_client_cert = if let Some(v) = body.tls_client_cert { v } else { existing.tls_client_cert };
+    let tls_client_key = if let Some(v) = body.tls_client_key { v } else { existing.tls_client_key };
+    let tls_skip_verify = body.tls_skip_verify.unwrap_or(existing.tls_skip_verify);
+
+    // Validate mTLS: cert and key must be provided together
+    if tls_client_cert.is_some() != tls_client_key.is_some() {
+        return Err(AppError::Validation("tls_client_cert and tls_client_key must both be provided".into()));
+    }
+
     let updated: shared::models::Upstream = sqlx::query_as(
-        "UPDATE upstreams SET name = $1, algorithm = $2, active = $3, circuit_breaker_threshold = $4, circuit_breaker_duration_secs = $5, updated_at = now() WHERE id = $6 RETURNING *",
+        "UPDATE upstreams SET name = $1, algorithm = $2, active = $3, circuit_breaker_threshold = $4, circuit_breaker_duration_secs = $5, tls_ca_cert = $6, tls_client_cert = $7, tls_client_key = $8, tls_skip_verify = $9, updated_at = now() WHERE id = $10 RETURNING *",
     )
     .bind(&name)
     .bind(&algorithm)
     .bind(active)
     .bind(circuit_breaker_threshold)
     .bind(circuit_breaker_duration_secs)
+    .bind(&tls_ca_cert)
+    .bind(&tls_client_cert)
+    .bind(&tls_client_key)
+    .bind(tls_skip_verify)
     .bind(id)
     .fetch_one(&pool)
     .await?;
@@ -277,6 +326,10 @@ pub async fn update_upstream(
         circuit_breaker_threshold: updated.circuit_breaker_threshold,
         circuit_breaker_duration_secs: updated.circuit_breaker_duration_secs,
         active: updated.active,
+        tls_ca_cert: updated.tls_ca_cert,
+        tls_client_cert: updated.tls_client_cert,
+        tls_client_key: updated.tls_client_key,
+        tls_skip_verify: updated.tls_skip_verify,
         targets,
         created_at: updated.created_at,
         updated_at: updated.updated_at,

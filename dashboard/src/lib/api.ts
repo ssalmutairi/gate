@@ -33,6 +33,10 @@ export interface Upstream {
   name: string;
   algorithm: string;
   active: boolean;
+  tls_ca_cert: string | null;
+  tls_client_cert: string | null;
+  tls_client_key: string | null;
+  tls_skip_verify: boolean;
   targets?: Target[];
   created_at: string;
   updated_at: string;
@@ -96,9 +100,24 @@ interface Paginated<T> { data: T[]; total: number; page: number; limit: number; 
 
 // Upstreams
 export const getUpstreams = () => api.get<Paginated<Upstream>>('/upstreams').then(r => r.data.data);
-export const createUpstream = (data: { name: string; algorithm?: string }) =>
+export const createUpstream = (data: {
+  name: string;
+  algorithm?: string;
+  tls_ca_cert?: string | null;
+  tls_client_cert?: string | null;
+  tls_client_key?: string | null;
+  tls_skip_verify?: boolean;
+}) =>
   api.post<Upstream>('/upstreams', data).then(r => r.data);
-export const updateUpstream = (id: string, data: { name?: string; algorithm?: string; active?: boolean }) =>
+export const updateUpstream = (id: string, data: {
+  name?: string;
+  algorithm?: string;
+  active?: boolean;
+  tls_ca_cert?: string | null;
+  tls_client_cert?: string | null;
+  tls_client_key?: string | null;
+  tls_skip_verify?: boolean;
+}) =>
   api.put<Upstream>(`/upstreams/${id}`, data).then(r => r.data);
 export const deleteUpstream = (id: string) => api.delete(`/upstreams/${id}`);
 
