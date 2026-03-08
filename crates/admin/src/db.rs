@@ -26,6 +26,7 @@ pub async fn run_migrations(pool: &PgPool) {
         include_str!("../../../migrations/012_add_route_host_and_cache.sql"),
         include_str!("../../../migrations/013_create_ip_rules.sql"),
         include_str!("../../../migrations/014_add_soap_support.sql"),
+        include_str!("../../../migrations/015_create_compositions.sql"),
     ];
 
     for (i, sql) in migrations.iter().enumerate() {

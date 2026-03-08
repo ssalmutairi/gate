@@ -117,6 +117,46 @@ pub struct Service {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct Composition {
+    pub id: Uuid,
+    pub name: String,
+    pub path_prefix: String,
+    pub path_pattern: Option<String>,
+    pub methods: Option<Vec<String>>,
+    pub host_pattern: Option<String>,
+    pub timeout_ms: i32,
+    pub max_wait_ms: Option<i32>,
+    pub auth_skip: bool,
+    pub active: bool,
+    pub response_merge: serde_json::Value,
+    pub input_schema: Option<serde_json::Value>,
+    pub output_schema: Option<serde_json::Value>,
+    pub namespace: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct CompositionStep {
+    pub id: Uuid,
+    pub composition_id: Uuid,
+    pub name: String,
+    pub step_order: i32,
+    pub method: String,
+    pub upstream_id: Uuid,
+    pub path_template: String,
+    pub body_template: Option<serde_json::Value>,
+    pub headers_template: Option<serde_json::Value>,
+    pub depends_on: Option<Vec<String>>,
+    pub on_error: String,
+    pub default_value: Option<serde_json::Value>,
+    pub timeout_ms: i32,
+    pub use_internal_route: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct HeaderRule {
     pub id: Uuid,
     pub route_id: Uuid,

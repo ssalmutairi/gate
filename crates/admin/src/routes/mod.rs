@@ -1,4 +1,5 @@
 pub mod api_keys;
+pub mod compositions;
 pub mod header_rules;
 pub mod health;
 pub mod ip_rules;

@@ -1,7 +1,7 @@
 use crate::router::GatewayConfig;
 use crate::soap::SoapServiceMeta;
 use arc_swap::ArcSwap;
-use shared::models::{ApiKey, HeaderRule, IpRule, RateLimit, Route, Target, Upstream};
+use shared::models::{ApiKey, Composition, CompositionStep, HeaderRule, IpRule, RateLimit, Route, Target, Upstream};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 use std::collections::HashMap;
@@ -63,6 +63,16 @@ pub async fn load_config(pool: &PgPool) -> GatewayConfig {
         }
     }
 
+    let compositions: Vec<Composition> = sqlx::query_as("SELECT * FROM compositions WHERE active = true")
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default();
+
+    let composition_steps: Vec<CompositionStep> = sqlx::query_as("SELECT * FROM composition_steps")
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default();
+
     tracing::info!(
         routes = routes.len(),
         upstreams = upstreams.len(),
@@ -72,10 +82,11 @@ pub async fn load_config(pool: &PgPool) -> GatewayConfig {
         header_rules = header_rules.len(),
         ip_rules = ip_rules.len(),
         soap_services = soap_services.len(),
+        compositions = compositions.len(),
         "Config loaded from database"
     );
 
-    GatewayConfig::with_soap(routes, upstreams, targets, api_keys, rate_limits, header_rules, ip_rules, soap_services)
+    GatewayConfig::with_compositions(routes, upstreams, targets, api_keys, rate_limits, header_rules, ip_rules, soap_services, compositions, composition_steps)
 }
 
 #[cfg(test)]
@@ -95,6 +106,10 @@ async fn run_test_migrations(pool: &PgPool) {
         include_str!("../../../migrations/012_add_route_host_and_cache.sql"),
         include_str!("../../../migrations/013_create_ip_rules.sql"),
         include_str!("../../../migrations/014_add_soap_support.sql"),
+        include_str!("../../../migrations/015_create_compositions.sql"),
+        include_str!("../../../migrations/016_add_step_internal_route.sql"),
+        include_str!("../../../migrations/017_add_composition_schemas.sql"),
+        include_str!("../../../migrations/018_add_composition_namespace.sql"),
     ];
     for sql in &migrations {
         for statement in sql.split(';') {
@@ -127,7 +142,7 @@ async fn setup_test_pool() -> PgPool {
     run_test_migrations(&pool).await;
     // Truncate relevant tables
     sqlx::query(
-        "TRUNCATE TABLE ip_rules, request_logs, header_rules, rate_limits, api_keys, services, routes, targets, upstreams CASCADE"
+        "TRUNCATE TABLE composition_steps, compositions, ip_rules, request_logs, header_rules, rate_limits, api_keys, services, routes, targets, upstreams CASCADE"
     )
     .execute(&pool)
     .await
@@ -176,6 +191,10 @@ pub fn spawn_config_reloader(
                             SELECT MAX(updated_at) FROM header_rules
                             UNION ALL
                             SELECT MAX(updated_at) FROM ip_rules
+                            UNION ALL
+                            SELECT MAX(updated_at) FROM compositions
+                            UNION ALL
+                            SELECT MAX(updated_at) FROM composition_steps
                         ) sub"#,
                     )
                     .fetch_optional(&pool)

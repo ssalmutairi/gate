@@ -5,6 +5,7 @@ use sqlx::SqlitePool;
 use std::collections::HashMap;
 use uuid::Uuid;
 
+
 pub fn collect_cb_configs(config: &GatewayConfig) -> Vec<(Uuid, u32, u32)> {
     let mut cb_configs = Vec::new();
     for (upstream_id, upstream) in &config.upstreams {
@@ -34,6 +35,8 @@ pub async fn load_config(pool: &SqlitePool) -> GatewayConfig {
         sqlite_header_rules,
         sqlite_ip_rules,
         soap_rows,
+        sqlite_compositions,
+        sqlite_composition_steps,
     ) = tokio::join!(
         async {
             sqlx::query_as::<_, SqliteRoute>("SELECT * FROM routes WHERE active = 1")
@@ -87,6 +90,18 @@ pub async fn load_config(pool: &SqlitePool) -> GatewayConfig {
             .await
             .unwrap_or_default()
         },
+        async {
+            sqlx::query_as::<_, SqliteComposition>("SELECT * FROM compositions WHERE active = 1")
+                .fetch_all(pool)
+                .await
+                .unwrap_or_default()
+        },
+        async {
+            sqlx::query_as::<_, SqliteCompositionStep>("SELECT * FROM composition_steps")
+                .fetch_all(pool)
+                .await
+                .unwrap_or_default()
+        },
     );
 
     let routes: Vec<shared::models::Route> = sqlite_routes.into_iter().map(Into::into).collect();
@@ -108,6 +123,9 @@ pub async fn load_config(pool: &SqlitePool) -> GatewayConfig {
         }
     }
 
+    let compositions: Vec<shared::models::Composition> = sqlite_compositions.into_iter().map(Into::into).collect();
+    let composition_steps: Vec<shared::models::CompositionStep> = sqlite_composition_steps.into_iter().map(Into::into).collect();
+
     tracing::info!(
         routes = routes.len(),
         upstreams = upstreams.len(),
@@ -117,10 +135,11 @@ pub async fn load_config(pool: &SqlitePool) -> GatewayConfig {
         header_rules = header_rules.len(),
         ip_rules = ip_rules.len(),
         soap_services = soap_services.len(),
+        compositions = compositions.len(),
         "Config loaded from SQLite"
     );
 
-    GatewayConfig::with_soap(
+    GatewayConfig::with_compositions(
         routes,
         upstreams,
         targets,
@@ -129,5 +148,7 @@ pub async fn load_config(pool: &SqlitePool) -> GatewayConfig {
         header_rules,
         ip_rules,
         soap_services,
+        compositions,
+        composition_steps,
     )
 }

@@ -220,4 +220,88 @@ export const createHeaderRule = (routeId: string, data: { phase?: string; action
   api.post<HeaderRule>(`/routes/${routeId}/header-rules`, data).then(r => r.data);
 export const deleteHeaderRule = (id: string) => api.delete(`/header-rules/${id}`);
 
+// Compositions
+export interface CompositionStep {
+  id: string;
+  composition_id: string;
+  name: string;
+  step_order: number;
+  method: string;
+  upstream_id: string;
+  path_template: string;
+  body_template: any | null;
+  headers_template: any | null;
+  depends_on: string[] | null;
+  on_error: string;
+  default_value: any | null;
+  timeout_ms: number;
+  use_internal_route: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Composition {
+  id: string;
+  name: string;
+  path_prefix: string;
+  path_pattern: string | null;
+  methods: string[] | null;
+  host_pattern: string | null;
+  timeout_ms: number;
+  max_wait_ms: number | null;
+  auth_skip: boolean;
+  active: boolean;
+  response_merge: any;
+  input_schema: any | null;
+  output_schema: any | null;
+  namespace: string | null;
+  created_at: string;
+  updated_at: string;
+  steps?: CompositionStep[];
+}
+
+export const getCompositions = () => api.get<Paginated<Composition>>('/compositions').then(r => r.data.data);
+export const getComposition = (id: string) => api.get<Composition>(`/compositions/${id}`).then(r => r.data);
+export const createComposition = (data: {
+  name: string;
+  path_prefix: string;
+  path_pattern?: string;
+  methods?: string[];
+  timeout_ms?: number;
+  max_wait_ms?: number;
+  auth_skip?: boolean;
+  response_merge: any;
+  input_schema?: any;
+  output_schema?: any;
+  namespace?: string;
+  steps: {
+    name: string;
+    method?: string;
+    upstream_id: string;
+    path_template: string;
+    body_template?: any;
+    headers_template?: any;
+    depends_on?: string[];
+    on_error?: string;
+    default_value?: any;
+    timeout_ms?: number;
+    use_internal_route?: boolean;
+  }[];
+}) => api.post<Composition>('/compositions', data).then(r => r.data);
+export const updateComposition = (id: string, data: any) =>
+  api.put<Composition>(`/compositions/${id}`, data).then(r => r.data);
+export const deleteComposition = (id: string) => api.delete(`/compositions/${id}`);
+export const getCompositionOpenApi = (id: string) =>
+  api.get<any>(`/compositions/${id}/openapi`).then(r => r.data);
+
+// Composition Namespaces
+export interface NamespaceSummary {
+  namespace: string | null;
+  count: number;
+}
+export const getCompositionNamespaces = () =>
+  api.get<NamespaceSummary[]>('/compositions/namespaces').then(r => r.data);
+export const getNamespaceOpenApi = (ns: string) =>
+  api.get<any>(`/compositions/namespaces/${encodeURIComponent(ns)}/openapi`).then(r => r.data);
+
 export default api;

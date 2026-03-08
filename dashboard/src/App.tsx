@@ -11,6 +11,9 @@ import RateLimitsPage from './pages/RateLimitsPage';
 import LogsPage from './pages/LogsPage';
 import ServicesPage from './pages/ServicesPage';
 import ServiceDetailPage from './pages/ServiceDetailPage';
+import CompositionsPage from './pages/CompositionsPage';
+import CompositionFormPage from './pages/CompositionFormPage';
+import NamespaceDetailPage from './pages/NamespaceDetailPage';
 import SettingsPage from './pages/SettingsPage';
 import { Toaster } from './components/ui/sonner';
 
@@ -37,6 +40,10 @@ function App() {
                 <Route path="/services" element={<ServicesPage />} />
                 <Route path="/services/:id" element={<ServiceDetailPage />} />
                 <Route path="/routes" element={<RoutesPage />} />
+                <Route path="/compositions" element={<CompositionsPage />} />
+                <Route path="/compositions/namespaces/:ns" element={<NamespaceDetailPage />} />
+                <Route path="/compositions/new" element={<CompositionFormPage />} />
+                <Route path="/compositions/:id/edit" element={<CompositionFormPage />} />
                 <Route path="/upstreams" element={<UpstreamsPage />} />
                 <Route path="/api-keys" element={<ApiKeysPage />} />
                 <Route path="/rate-limits" element={<RateLimitsPage />} />

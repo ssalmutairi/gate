@@ -291,6 +291,128 @@ impl From<SqliteIpRule> for shared::models::IpRule {
     }
 }
 
+// --- Composition (response_merge is JSON text, methods is JSON text) ---
+
+#[derive(Debug, Clone, FromRow)]
+pub struct SqliteComposition {
+    pub id: String,
+    pub name: String,
+    pub path_prefix: String,
+    pub path_pattern: Option<String>,
+    pub methods: Option<String>,
+    pub host_pattern: Option<String>,
+    pub timeout_ms: i32,
+    pub max_wait_ms: Option<i32>,
+    pub auth_skip: bool,
+    pub active: bool,
+    pub response_merge: String,
+    pub input_schema: Option<String>,
+    pub output_schema: Option<String>,
+    pub namespace: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+impl From<SqliteComposition> for shared::models::Composition {
+    fn from(c: SqliteComposition) -> Self {
+        let methods: Option<Vec<String>> = c
+            .methods
+            .as_deref()
+            .and_then(|s| serde_json::from_str(s).ok());
+        let response_merge: serde_json::Value =
+            serde_json::from_str(&c.response_merge).unwrap_or_default();
+        let input_schema: Option<serde_json::Value> = c
+            .input_schema
+            .as_deref()
+            .and_then(|s| serde_json::from_str(s).ok());
+        let output_schema: Option<serde_json::Value> = c
+            .output_schema
+            .as_deref()
+            .and_then(|s| serde_json::from_str(s).ok());
+
+        Self {
+            id: parse_uuid(&c.id),
+            name: c.name,
+            path_prefix: c.path_prefix,
+            path_pattern: c.path_pattern,
+            methods,
+            host_pattern: c.host_pattern,
+            timeout_ms: c.timeout_ms,
+            max_wait_ms: c.max_wait_ms,
+            auth_skip: c.auth_skip,
+            active: c.active,
+            response_merge,
+            input_schema,
+            output_schema,
+            namespace: c.namespace,
+            created_at: parse_dt(&c.created_at),
+            updated_at: parse_dt(&c.updated_at),
+        }
+    }
+}
+
+// --- CompositionStep (depends_on is JSON text, body/headers/default are JSON text) ---
+
+#[derive(Debug, Clone, FromRow)]
+pub struct SqliteCompositionStep {
+    pub id: String,
+    pub composition_id: String,
+    pub name: String,
+    pub step_order: i32,
+    pub method: String,
+    pub upstream_id: String,
+    pub path_template: String,
+    pub body_template: Option<String>,
+    pub headers_template: Option<String>,
+    pub depends_on: Option<String>,
+    pub on_error: String,
+    pub default_value: Option<String>,
+    pub timeout_ms: i32,
+    pub use_internal_route: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+impl From<SqliteCompositionStep> for shared::models::CompositionStep {
+    fn from(s: SqliteCompositionStep) -> Self {
+        let depends_on: Option<Vec<String>> = s
+            .depends_on
+            .as_deref()
+            .and_then(|v| serde_json::from_str(v).ok());
+        let body_template: Option<serde_json::Value> = s
+            .body_template
+            .as_deref()
+            .and_then(|v| serde_json::from_str(v).ok());
+        let headers_template: Option<serde_json::Value> = s
+            .headers_template
+            .as_deref()
+            .and_then(|v| serde_json::from_str(v).ok());
+        let default_value: Option<serde_json::Value> = s
+            .default_value
+            .as_deref()
+            .and_then(|v| serde_json::from_str(v).ok());
+
+        Self {
+            id: parse_uuid(&s.id),
+            composition_id: parse_uuid(&s.composition_id),
+            name: s.name,
+            step_order: s.step_order,
+            method: s.method,
+            upstream_id: parse_uuid(&s.upstream_id),
+            path_template: s.path_template,
+            body_template,
+            headers_template,
+            depends_on,
+            on_error: s.on_error,
+            default_value,
+            timeout_ms: s.timeout_ms,
+            use_internal_route: s.use_internal_route,
+            created_at: parse_dt(&s.created_at),
+            updated_at: parse_dt(&s.updated_at),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

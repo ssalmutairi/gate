@@ -1,14 +1,35 @@
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
+use serde::Serialize;
+
+/// A single request log entry kept in memory.
+#[derive(Debug, Clone, Serialize)]
+pub struct LogEntry {
+    pub id: String,
+    pub route_id: Option<String>,
+    pub method: String,
+    pub path: String,
+    pub status_code: i32,
+    pub latency_ms: f64,
+    pub client_ip: String,
+    pub upstream_target: Option<String>,
+    pub created_at: String,
+}
+
+const MAX_LOG_ENTRIES: usize = 200;
+
 /// In-memory request statistics for standalone mode.
-/// Tracks aggregate counts and latency — no per-request log storage.
+/// Tracks aggregate counts, latency, and a ring buffer of recent request logs.
 pub struct RequestStats {
     pub total_requests: AtomicU64,
     pub error_count: AtomicU64,
     latency_sum_us: AtomicU64,
     /// Sampled latencies for P95 calculation (kept bounded).
     latencies_ms: Mutex<Vec<f64>>,
+    /// Ring buffer of the latest request logs.
+    log_entries: Mutex<VecDeque<LogEntry>>,
 }
 
 const MAX_LATENCY_SAMPLES: usize = 10_000;
@@ -20,6 +41,7 @@ impl RequestStats {
             error_count: AtomicU64::new(0),
             latency_sum_us: AtomicU64::new(0),
             latencies_ms: Mutex::new(Vec::with_capacity(1024)),
+            log_entries: Mutex::new(VecDeque::with_capacity(MAX_LOG_ENTRIES + 1)),
         }
     }
 
@@ -38,6 +60,34 @@ impl RequestStats {
                 latencies.drain(..half);
             }
             latencies.push(latency_ms);
+        }
+    }
+
+    /// Record a full request log entry into the ring buffer.
+    pub fn record_log(&self, entry: LogEntry) {
+        if let Ok(mut logs) = self.log_entries.lock() {
+            if logs.len() >= MAX_LOG_ENTRIES {
+                logs.pop_front();
+            }
+            logs.push_back(entry);
+        }
+    }
+
+    /// Get paginated log entries (newest first).
+    pub fn get_logs(&self, page: usize, limit: usize) -> (Vec<LogEntry>, usize) {
+        if let Ok(logs) = self.log_entries.lock() {
+            let total = logs.len();
+            let offset = (page - 1) * limit;
+            let entries: Vec<LogEntry> = logs
+                .iter()
+                .rev()
+                .skip(offset)
+                .take(limit)
+                .cloned()
+                .collect();
+            (entries, total)
+        } else {
+            (vec![], 0)
         }
     }
 

@@ -1,4 +1,5 @@
 pub mod api_keys;
+pub mod compositions;
 pub mod header_rules;
 pub mod health;
 pub mod ip_rules;
@@ -38,7 +39,8 @@ impl PaginationParams {
 
 const ALLOWED_TABLES: &[&str] = &[
     "upstreams", "routes", "api_keys", "rate_limits",
-    "header_rules", "ip_rules", "services",
+    "header_rules", "ip_rules", "services", "compositions",
+    "composition_steps",
 ];
 
 pub async fn delete_by_id(

@@ -137,6 +137,30 @@ pub fn build_router_with_config(pool: PgPool, max_spec_size_bytes: usize) -> Rou
             "/admin/services/:id/spec",
             get(routes::services::get_service_spec),
         )
+        // Compositions
+        .route(
+            "/admin/compositions",
+            get(routes::compositions::list_compositions)
+                .post(routes::compositions::create_composition),
+        )
+        .route(
+            "/admin/compositions/namespaces",
+            get(routes::compositions::list_namespaces),
+        )
+        .route(
+            "/admin/compositions/namespaces/:ns/openapi",
+            get(routes::compositions::get_namespace_openapi),
+        )
+        .route(
+            "/admin/compositions/:id",
+            get(routes::compositions::get_composition)
+                .put(routes::compositions::update_composition)
+                .delete(routes::compositions::delete_composition),
+        )
+        .route(
+            "/admin/compositions/:id/openapi",
+            get(routes::compositions::get_composition_openapi),
+        )
         // Stats & Logs
         .route("/admin/stats", get(routes::stats::get_stats))
         .route("/admin/logs", get(routes::stats::get_logs))

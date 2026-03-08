@@ -160,6 +160,18 @@ fn main() {
         rt.block_on(async move {
             while let Some(entry) = log_receiver.recv().await {
                 stats_writer.record(entry.status_code, entry.latency_ms);
+                let now = chrono::Utc::now().to_rfc3339();
+                stats_writer.record_log(request_stats::LogEntry {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    route_id: entry.route_id.map(|r| r.to_string()),
+                    method: entry.method,
+                    path: entry.path,
+                    status_code: entry.status_code,
+                    latency_ms: entry.latency_ms,
+                    client_ip: entry.client_ip,
+                    upstream_target: entry.upstream_target,
+                    created_at: now,
+                });
             }
         });
     });
@@ -204,6 +216,7 @@ fn main() {
         log_sender,
         app_config.trusted_proxies.clone(),
         state_backend,
+        app_config.proxy_port,
     );
     let mut proxy_service = http_proxy_service(&server.configuration, proxy);
 
@@ -249,6 +262,7 @@ fn build_admin_router(
         .route("/admin/health", get(routes::health::health_check))
         // Stats & Logs (standalone returns empty/zeroed — no request logging)
         .route("/admin/stats", get(routes::health::stats))
+        .route("/admin/reload", post(routes::health::reload_config))
         .route("/admin/logs", get(routes::health::logs))
         // Routes
         .route("/admin/routes", get(routes::routes::list_routes))
@@ -321,6 +335,30 @@ fn build_admin_router(
         .route(
             "/admin/ip-rules/:id",
             delete(routes::ip_rules::delete_ip_rule),
+        )
+        // Compositions
+        .route(
+            "/admin/compositions",
+            get(routes::compositions::list_compositions)
+                .post(routes::compositions::create_composition),
+        )
+        .route(
+            "/admin/compositions/namespaces",
+            get(routes::compositions::list_namespaces),
+        )
+        .route(
+            "/admin/compositions/namespaces/:ns/openapi",
+            get(routes::compositions::get_namespace_openapi),
+        )
+        .route(
+            "/admin/compositions/:id",
+            get(routes::compositions::get_composition)
+                .put(routes::compositions::update_composition)
+                .delete(routes::compositions::delete_composition),
+        )
+        .route(
+            "/admin/compositions/:id/openapi",
+            get(routes::compositions::get_composition_openapi),
         )
         // Services
         .route(
@@ -886,6 +924,165 @@ mod e2e_tests {
 
         let config = config_loader::load_config(&pool).await;
         assert_eq!(config.routes.len(), 0);
+    }
+
+    // --- Compositions CRUD ---
+
+    #[tokio::test]
+    async fn composition_crud() {
+        let (_pool, app) = setup().await;
+
+        // Create upstream first
+        let resp = app.clone().oneshot(auth_req("POST", "/admin/upstreams", Some(serde_json::json!({
+            "name": "comp-upstream"
+        })))).await.unwrap();
+        let upstream_id = body_json(resp).await["id"].as_str().unwrap().to_string();
+
+        // Create composition
+        let resp = app.clone().oneshot(auth_req("POST", "/admin/compositions", Some(serde_json::json!({
+            "name": "user-profile",
+            "path_prefix": "/user-profile",
+            "path_pattern": "/:id",
+            "response_merge": {
+                "user": "${user.body}",
+                "orders": "${orders.body}"
+            },
+            "steps": [
+                {
+                    "name": "user",
+                    "method": "GET",
+                    "upstream_id": upstream_id,
+                    "path_template": "/users/${request.path.id}",
+                    "depends_on": []
+                },
+                {
+                    "name": "orders",
+                    "method": "GET",
+                    "upstream_id": upstream_id,
+                    "path_template": "/orders?user_id=${request.path.id}",
+                    "depends_on": [],
+                    "on_error": "skip"
+                }
+            ]
+        })))).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::CREATED);
+        let body = body_json(resp).await;
+        let comp_id = body["id"].as_str().unwrap().to_string();
+        assert_eq!(body["name"], "user-profile");
+        assert_eq!(body["path_prefix"], "/user-profile");
+        assert_eq!(body["steps"].as_array().unwrap().len(), 2);
+
+        // Get composition
+        let resp = app.clone().oneshot(auth_req("GET", &format!("/admin/compositions/{}", comp_id), None)).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        assert_eq!(body["name"], "user-profile");
+        assert_eq!(body["steps"].as_array().unwrap().len(), 2);
+
+        // List compositions
+        let resp = app.clone().oneshot(auth_req("GET", "/admin/compositions", None)).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        assert_eq!(body["total"], 1);
+
+        // Update composition
+        let resp = app.clone().oneshot(auth_req("PUT", &format!("/admin/compositions/{}", comp_id), Some(serde_json::json!({
+            "name": "updated-profile",
+            "timeout_ms": 5000
+        })))).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        assert_eq!(body["name"], "updated-profile");
+        assert_eq!(body["timeout_ms"], 5000);
+
+        // Delete composition
+        let resp = app.clone().oneshot(auth_req("DELETE", &format!("/admin/compositions/{}", comp_id), None)).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+
+        // Verify deleted
+        let resp = app.clone().oneshot(auth_req("GET", &format!("/admin/compositions/{}", comp_id), None)).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn composition_validation() {
+        let (_pool, app) = setup().await;
+
+        let resp = app.clone().oneshot(auth_req("POST", "/admin/upstreams", Some(serde_json::json!({
+            "name": "comp-val-upstream"
+        })))).await.unwrap();
+        let upstream_id = body_json(resp).await["id"].as_str().unwrap().to_string();
+
+        // Empty name
+        let resp = app.clone().oneshot(auth_req("POST", "/admin/compositions", Some(serde_json::json!({
+            "name": "",
+            "path_prefix": "/test",
+            "response_merge": {},
+            "steps": [{"name": "a", "upstream_id": upstream_id, "path_template": "/a"}]
+        })))).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+        // No steps
+        let resp = app.clone().oneshot(auth_req("POST", "/admin/compositions", Some(serde_json::json!({
+            "name": "test",
+            "path_prefix": "/test",
+            "response_merge": {},
+            "steps": []
+        })))).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+        // Cycle in steps
+        let resp = app.clone().oneshot(auth_req("POST", "/admin/compositions", Some(serde_json::json!({
+            "name": "cycle-test",
+            "path_prefix": "/test",
+            "response_merge": {},
+            "steps": [
+                {"name": "a", "upstream_id": upstream_id, "path_template": "/a", "depends_on": ["b"]},
+                {"name": "b", "upstream_id": upstream_id, "path_template": "/b", "depends_on": ["a"]}
+            ]
+        })))).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+        // Invalid on_error
+        let resp = app.clone().oneshot(auth_req("POST", "/admin/compositions", Some(serde_json::json!({
+            "name": "invalid-error",
+            "path_prefix": "/test",
+            "response_merge": {},
+            "steps": [
+                {"name": "a", "upstream_id": upstream_id, "path_template": "/a", "on_error": "invalid"}
+            ]
+        })))).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn composition_config_loader() {
+        let (pool, app) = setup().await;
+
+        // Create upstream
+        let resp = app.clone().oneshot(auth_req("POST", "/admin/upstreams", Some(serde_json::json!({
+            "name": "config-comp-upstream"
+        })))).await.unwrap();
+        let upstream_id = body_json(resp).await["id"].as_str().unwrap().to_string();
+
+        // Create composition
+        app.clone().oneshot(auth_req("POST", "/admin/compositions", Some(serde_json::json!({
+            "name": "config-test",
+            "path_prefix": "/compose",
+            "response_merge": {"data": "${step1.body}"},
+            "steps": [
+                {"name": "step1", "upstream_id": upstream_id, "path_template": "/data"}
+            ]
+        })))).await.unwrap();
+
+        // Load config — composition should be loaded
+        let config = config_loader::load_config(&pool).await;
+        assert_eq!(config.compositions.len(), 1);
+        assert_eq!(config.compositions[0].name, "config-test");
+        assert_eq!(config.compositions[0].path_prefix, "/compose");
+        let steps = config.get_composition_steps(&config.compositions[0].id);
+        assert!(steps.is_some());
+        assert_eq!(steps.unwrap().len(), 1);
     }
 }
 

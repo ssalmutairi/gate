@@ -161,6 +161,7 @@ fn main() {
         log_sender,
         app_config.trusted_proxies.clone(),
         state_backend,
+        app_config.proxy_port,
     );
     let mut proxy_service = http_proxy_service(&server.configuration, proxy);
 

@@ -109,6 +109,10 @@ pub struct GatewayProxy {
     trusted_proxies: Vec<String>,
     /// State backend (in-memory or Redis) for rate limiting and circuit breaker.
     pub state: Arc<StateBackend>,
+    /// HTTP client for composition step execution.
+    http_client: reqwest::Client,
+    /// Base URL for internal route composition steps (e.g. "http://127.0.0.1:8080").
+    internal_route_base: String,
 }
 
 impl GatewayProxy {
@@ -118,7 +122,12 @@ impl GatewayProxy {
         log_sender: tokio::sync::mpsc::Sender<RequestLogEntry>,
         trusted_proxies: Vec<String>,
         state: Arc<StateBackend>,
+        proxy_port: u16,
     ) -> Self {
+        let http_client = reqwest::Client::builder()
+            .pool_max_idle_per_host(20)
+            .build()
+            .expect("Failed to create HTTP client for compositions");
         Self {
             config,
             rr_counter: AtomicUsize::new(0),
@@ -126,6 +135,8 @@ impl GatewayProxy {
             log_sender,
             trusted_proxies,
             state,
+            http_client,
+            internal_route_base: format!("http://127.0.0.1:{}", proxy_port),
         }
     }
 }
@@ -186,6 +197,10 @@ impl ProxyHttp for GatewayProxy {
         let route = match config.match_route(&path, method, host.as_deref()) {
             Some(r) => r,
             None => {
+                // Check for composition match before returning 404
+                if let Some(composition) = config.match_composition(&path, method, host.as_deref()) {
+                    return self.handle_composition(session, ctx, &config, composition, &path).await;
+                }
                 let _ = session.respond_error(404).await;
                 return Ok(true);
             }
@@ -970,6 +985,7 @@ mod tests {
             tx,
             vec![],
             state,
+            8080,
         )
     }
 
@@ -1131,6 +1147,7 @@ mod tests {
             tx,
             vec!["10.0.0.1".to_string(), "172.16.0.1".to_string()],
             state,
+            8080,
         );
         assert_eq!(proxy.trusted_proxies.len(), 2);
         assert_eq!(proxy.trusted_proxies[0], "10.0.0.1");
@@ -1204,6 +1221,211 @@ mod tests {
     fn rewrite_path_upstream_prefix_trailing_slash() {
         let result = rewrite_path("/users", "", false, Some("/v2/"), None);
         assert_eq!(result, "/v2/users");
+    }
+}
+
+// Composition execution
+impl GatewayProxy {
+    async fn handle_composition(
+        &self,
+        session: &mut Session,
+        ctx: &mut GatewayCtx,
+        config: &std::sync::Arc<GatewayConfig>,
+        composition: &shared::models::Composition,
+        path: &str,
+    ) -> Result<bool> {
+        let comp_id = composition.id;
+        ctx.route_id = Some(comp_id);
+        ctx.path_prefix = composition.path_prefix.clone();
+
+        // Auth check (reuse route auth logic with composition.id as identity)
+        if !composition.auth_skip && config.route_requires_auth(&comp_id) {
+            let key_header = session
+                .req_header()
+                .headers
+                .get("authorization")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|s| s.strip_prefix("Bearer "))
+                .map(|s| s.to_string())
+                .or_else(|| {
+                    session
+                        .req_header()
+                        .headers
+                        .get("x-api-key")
+                        .and_then(|v| v.to_str().ok())
+                        .map(|s| s.to_string())
+                });
+
+            match key_header {
+                None => {
+                    return self
+                        .send_json_error(session, 401, "Authorization header required", "AUTH_REQUIRED")
+                        .await;
+                }
+                Some(plaintext_key) => {
+                    let mut hasher = <sha2::Sha256 as sha2::Digest>::new();
+                    sha2::Digest::update(&mut hasher, plaintext_key.as_bytes());
+                    let key_hash = hex::encode(sha2::Digest::finalize(hasher));
+                    if let Err(msg) = config.validate_api_key(&comp_id, &key_hash) {
+                        return self.send_json_error(session, 401, msg, "AUTH_FAILED").await;
+                    }
+                }
+            }
+        }
+
+        // IP rules check
+        if let Some(rules) = config.get_ip_rules(&comp_id) {
+            let client_ip = self.get_client_ip(session);
+            if let Ok(client_addr) = client_ip.parse::<std::net::IpAddr>() {
+                let has_allow_rules = rules.iter().any(|r| r.action == "allow");
+                let mut denied = false;
+                let mut allowed = !has_allow_rules;
+
+                for rule in rules {
+                    if let Ok(network) = rule.cidr.parse::<ipnet::IpNet>() {
+                        if network.contains(&client_addr) {
+                            if rule.action == "deny" {
+                                denied = true;
+                                break;
+                            } else if rule.action == "allow" {
+                                allowed = true;
+                            }
+                        }
+                    }
+                }
+
+                if denied || !allowed {
+                    return self
+                        .send_json_error(session, 403, "IP address not allowed", "IP_DENIED")
+                        .await;
+                }
+            }
+        }
+
+        let steps = match config.get_composition_steps(&comp_id) {
+            Some(s) => s.clone(),
+            None => {
+                return self
+                    .send_json_error(session, 500, "No steps configured for composition", "COMPOSITION_NO_STEPS")
+                    .await;
+            }
+        };
+
+        // Build template context
+        let rest_path = if path.len() > composition.path_prefix.len() {
+            &path[composition.path_prefix.len()..]
+        } else {
+            ""
+        };
+
+        let mut template_ctx = shared::composition::template::TemplateContext::new();
+
+        // Extract path params from pattern
+        if let Some(ref pattern) = composition.path_pattern {
+            template_ctx.path_params =
+                shared::composition::template::extract_path_params(pattern, rest_path);
+        }
+
+        // Extract query params
+        if let Some(query) = session.req_header().uri.query() {
+            for pair in query.split('&') {
+                if let Some((k, v)) = pair.split_once('=') {
+                    template_ctx.query_params.insert(k.to_string(), v.to_string());
+                }
+            }
+        }
+
+        // Extract headers
+        for (name, value) in session.req_header().headers.iter() {
+            if let Ok(v) = value.to_str() {
+                template_ctx.headers.insert(name.to_string(), v.to_string());
+            }
+        }
+
+        // Read request body for template resolution (e.g. ${request.body.field})
+        let has_body = session.req_header().headers.contains_key("content-length")
+            || session.req_header().headers.contains_key("transfer-encoding");
+        if has_body {
+            let mut body_buf = Vec::new();
+            loop {
+                match session.downstream_session.read_request_body().await {
+                    Ok(Some(bytes)) => {
+                        body_buf.extend_from_slice(&bytes);
+                        if body_buf.len() > 1024 * 1024 {
+                            break; // 1MB limit
+                        }
+                    }
+                    _ => break,
+                }
+            }
+            if !body_buf.is_empty() {
+                if let Ok(parsed) = serde_json::from_slice::<serde_json::Value>(&body_buf) {
+                    template_ctx.body = Some(parsed);
+                }
+            }
+        }
+
+        // Validate input schema if defined
+        if let Some(ref input_schema) = composition.input_schema {
+            if let Err(validation_errors) =
+                shared::composition::executor::validate_input_schema(input_schema, &template_ctx.body)
+            {
+                let msg = format!("Input validation failed: {}", validation_errors.join("; "));
+                return self
+                    .send_json_error(session, 400, &msg, "INPUT_VALIDATION_FAILED")
+                    .await;
+            }
+        }
+
+        // Check X-Compose-Wait header
+        let compose_wait = session
+            .req_header()
+            .headers
+            .get("x-compose-wait")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.parse::<u64>().ok());
+
+        // Build target resolver
+        let config_clone = config.clone();
+        let target_resolver: shared::composition::executor::TargetResolver =
+            Box::new(move |upstream_id: &uuid::Uuid| {
+                config_clone
+                    .healthy_targets(upstream_id)
+                    .into_iter()
+                    .cloned()
+                    .collect()
+            });
+
+        let result = shared::composition::executor::execute_composition(
+            composition,
+            &steps,
+            &mut template_ctx,
+            &self.http_client,
+            &target_resolver,
+            compose_wait,
+            Some(&self.internal_route_base),
+        )
+        .await;
+
+        // Send response
+        let body_bytes = serde_json::to_vec(&result.body).unwrap_or_default();
+        let mut header =
+            pingora::http::ResponseHeader::build(result.status, None).unwrap();
+        header
+            .insert_header("Content-Type", "application/json")
+            .unwrap();
+        header
+            .insert_header("Content-Length", &body_bytes.len().to_string())
+            .unwrap();
+
+        session
+            .write_response_header(Box::new(header), false)
+            .await?;
+        session
+            .write_response_body(Some(bytes::Bytes::from(body_bytes)), true)
+            .await?;
+
+        Ok(true)
     }
 }
 

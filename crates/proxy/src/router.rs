@@ -1,5 +1,5 @@
 use crate::soap::SoapServiceMeta;
-use shared::models::{ApiKey, HeaderRule, IpRule, RateLimit, Route, Target, Upstream};
+use shared::models::{ApiKey, Composition, CompositionStep, HeaderRule, IpRule, RateLimit, Route, Target, Upstream};
 use std::collections::HashMap;
 use subtle::ConstantTimeEq;
 use uuid::Uuid;
@@ -23,6 +23,10 @@ pub struct GatewayConfig {
     pub ip_rules: HashMap<Uuid, Vec<IpRule>>,
     /// SOAP service metadata keyed by service_id (route's service_id).
     pub soap_services: HashMap<Uuid, SoapServiceMeta>,
+    /// Compositions sorted by path_prefix length descending (longest first).
+    pub compositions: Vec<Composition>,
+    /// Composition steps keyed by composition_id.
+    pub composition_steps: HashMap<Uuid, Vec<CompositionStep>>,
 }
 
 impl GatewayConfig {
@@ -40,6 +44,19 @@ impl GatewayConfig {
     }
 
     pub fn with_soap(
+        routes: Vec<Route>,
+        upstreams: Vec<Upstream>,
+        targets: Vec<Target>,
+        api_keys: Vec<ApiKey>,
+        rate_limits: Vec<RateLimit>,
+        header_rules: Vec<HeaderRule>,
+        ip_rules: Vec<IpRule>,
+        soap_services: HashMap<Uuid, SoapServiceMeta>,
+    ) -> Self {
+        Self::with_compositions(routes, upstreams, targets, api_keys, rate_limits, header_rules, ip_rules, soap_services, vec![], vec![])
+    }
+
+    pub fn with_compositions(
         mut routes: Vec<Route>,
         upstreams: Vec<Upstream>,
         targets: Vec<Target>,
@@ -48,6 +65,8 @@ impl GatewayConfig {
         header_rules: Vec<HeaderRule>,
         ip_rules: Vec<IpRule>,
         soap_services: HashMap<Uuid, SoapServiceMeta>,
+        mut compositions: Vec<Composition>,
+        composition_step_list: Vec<CompositionStep>,
     ) -> Self {
         // Sort routes: longest path_prefix first for most-specific match
         routes.sort_by(|a, b| b.path_prefix.len().cmp(&a.path_prefix.len()));
@@ -73,6 +92,21 @@ impl GatewayConfig {
             ip_rules_map.entry(rule.route_id).or_default().push(rule);
         }
 
+        // Sort compositions by path_prefix length descending
+        compositions.sort_by(|a, b| b.path_prefix.len().cmp(&a.path_prefix.len()));
+
+        let mut composition_steps_map: HashMap<Uuid, Vec<CompositionStep>> = HashMap::new();
+        for step in composition_step_list {
+            composition_steps_map
+                .entry(step.composition_id)
+                .or_default()
+                .push(step);
+        }
+        // Sort steps by step_order within each composition
+        for steps in composition_steps_map.values_mut() {
+            steps.sort_by_key(|s| s.step_order);
+        }
+
         Self {
             routes,
             upstreams: upstreams_map,
@@ -82,6 +116,8 @@ impl GatewayConfig {
             header_rules: header_rules_map,
             ip_rules: ip_rules_map,
             soap_services,
+            compositions,
+            composition_steps: composition_steps_map,
         }
     }
 
@@ -197,6 +233,52 @@ impl GatewayConfig {
     /// Get SOAP service metadata for a route by looking up its service_id.
     pub fn get_soap_meta(&self, route: &Route) -> Option<&SoapServiceMeta> {
         route.service_id.as_ref().and_then(|sid| self.soap_services.get(sid))
+    }
+
+    /// Match an incoming request against compositions (used when no regular route matches).
+    pub fn match_composition(&self, path: &str, method: &str, host: Option<&str>) -> Option<&Composition> {
+        for comp in &self.compositions {
+            if !comp.active {
+                continue;
+            }
+
+            // Check host pattern
+            if let Some(ref pattern) = comp.host_pattern {
+                match host {
+                    Some(h) => {
+                        if !host_matches(h, pattern) {
+                            continue;
+                        }
+                    }
+                    None => continue,
+                }
+            }
+
+            if !path.starts_with(&comp.path_prefix) {
+                continue;
+            }
+
+            let rest = &path[comp.path_prefix.len()..];
+            if !rest.is_empty() && !rest.starts_with('/') {
+                continue;
+            }
+
+            if let Some(ref methods) = comp.methods {
+                if !methods.is_empty()
+                    && !methods.iter().any(|m| m.eq_ignore_ascii_case(method))
+                {
+                    continue;
+                }
+            }
+
+            return Some(comp);
+        }
+        None
+    }
+
+    /// Get composition steps for a composition.
+    pub fn get_composition_steps(&self, composition_id: &Uuid) -> Option<&Vec<CompositionStep>> {
+        self.composition_steps.get(composition_id)
     }
 }
 

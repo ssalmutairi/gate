@@ -38,6 +38,10 @@ pub fn spawn_config_reloader(
                         SELECT MAX(updated_at) FROM header_rules
                         UNION ALL
                         SELECT MAX(updated_at) FROM ip_rules
+                        UNION ALL
+                        SELECT MAX(updated_at) FROM compositions
+                        UNION ALL
+                        SELECT MAX(updated_at) FROM composition_steps
                     ) sub"#,
                 )
                 .fetch_optional(&pool)
