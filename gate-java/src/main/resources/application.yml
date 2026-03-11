@@ -1,0 +1,13 @@
+server:
+  port: 8080
+  shutdown: graceful
+  netty:
+    idle-timeout: 60s
+
+spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+
+logging:
+  level:
+    com.gate: ${LOG_LEVEL:INFO}

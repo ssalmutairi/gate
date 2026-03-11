@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gate-rust-config
+data:
+  PROXY: |
+    [
+      { "name": "users", "ip": "users-service", "port": 8080 },
+      { "name": "orders", "ip": "orders-service", "port": 8080 },
+      { "name": "products", "ip": "products-service", "port": 8080, "api-key": "change-me", "tls": true }
+    ]
