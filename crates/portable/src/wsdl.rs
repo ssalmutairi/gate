@@ -5,6 +5,7 @@ use std::collections::HashMap;
 
 /// Result of parsing a WSDL document.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct WsdlParseResult {
     /// Generated OpenAPI 3.0 spec as JSON.
     pub openapi_spec: Value,

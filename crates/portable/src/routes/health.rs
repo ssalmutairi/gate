@@ -7,7 +7,7 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 
 use crate::proxy_core::router::GatewayConfig;
-use crate::request_stats::RequestStats;
+use crate::request_stats::{RequestLogBuffer, RequestStats};
 
 pub async fn health_check() -> Json<Value> {
     Json(json!({
@@ -40,13 +40,25 @@ pub struct LogsParams {
     pub method: Option<String>,
 }
 
-/// Standalone tracks aggregate stats in memory but does not store per-request logs.
-pub async fn logs(Query(params): Query<LogsParams>) -> Json<Value> {
-    let page = params.page.unwrap_or(1).max(1);
-    let limit = params.limit.unwrap_or(20).clamp(1, 100);
+/// Returns the last 200 request logs from the in-memory ring buffer.
+pub async fn logs(
+    Extension(log_buffer): Extension<Arc<RequestLogBuffer>>,
+    Query(params): Query<LogsParams>,
+) -> Json<Value> {
+    let page = params.page.unwrap_or(1).max(1) as usize;
+    let limit = params.limit.unwrap_or(20).clamp(1, 100) as usize;
+
+    let (data, total) = log_buffer.query(
+        page,
+        limit,
+        params.route_id.as_deref(),
+        params.status,
+        params.method.as_deref(),
+    );
+
     Json(json!({
-        "data": [],
-        "total": 0,
+        "data": data,
+        "total": total,
         "page": page,
         "limit": limit
     }))

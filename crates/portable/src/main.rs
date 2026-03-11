@@ -57,6 +57,9 @@ fn main() {
 
     let cli = Cli::parse();
 
+    // Load .env file if present (before CLI overrides)
+    dotenvy::dotenv().ok();
+
     // CLI args override env vars; standalone defaults apply last
     if let Some(v) = cli.admin_port { std::env::set_var("ADMIN_PORT", v.to_string()); }
     if let Some(v) = cli.proxy_port { std::env::set_var("PROXY_PORT", v.to_string()); }
@@ -65,9 +68,15 @@ fn main() {
     if let Some(v) = cli.token { std::env::set_var("ADMIN_TOKEN", v); }
     if let Some(v) = cli.log_level { std::env::set_var("LOG_LEVEL", v); }
 
-    // Standalone defaults (only if not set by CLI or env)
-    if std::env::var("DATABASE_URL").is_err() {
-        std::env::set_var("DATABASE_URL", "sqlite://gate.db");
+    // Portable mode requires SQLite — override any non-SQLite DATABASE_URL from .env
+    match std::env::var("DATABASE_URL") {
+        Ok(url) if !url.starts_with("sqlite://") => {
+            std::env::set_var("DATABASE_URL", "sqlite://gate.db");
+        }
+        Err(_) => {
+            std::env::set_var("DATABASE_URL", "sqlite://gate.db");
+        }
+        _ => {}
     }
     if std::env::var("ADMIN_TOKEN").is_err() {
         std::env::set_var("ADMIN_TOKEN", "changeme");
@@ -78,10 +87,18 @@ fn main() {
     // Initialize tracing
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(&app_config.log_level));
-    tracing_subscriber::fmt()
-        .with_env_filter(filter)
-        .json()
-        .init();
+    let log_format = std::env::var("LOG_FORMAT").unwrap_or_default();
+    if log_format.eq_ignore_ascii_case("pretty") {
+        tracing_subscriber::fmt()
+            .with_env_filter(filter)
+            .pretty()
+            .init();
+    } else {
+        tracing_subscriber::fmt()
+            .with_env_filter(filter)
+            .json()
+            .init();
+    }
 
     print_banner(&app_config);
 
@@ -148,10 +165,12 @@ fn main() {
         });
     });
 
-    // In-memory request stats — standalone counts requests without persisting
+    // In-memory request stats + log buffer (last 200 requests)
     let stats = Arc::new(request_stats::RequestStats::new());
+    let log_buffer = Arc::new(request_stats::RequestLogBuffer::new());
     let (log_sender, mut log_receiver) = tokio::sync::mpsc::channel::<RequestLogEntry>(LOG_CHANNEL_CAPACITY);
     let stats_writer = stats.clone();
+    let log_buffer_writer = log_buffer.clone();
     std::thread::spawn(move || {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -160,6 +179,21 @@ fn main() {
         rt.block_on(async move {
             while let Some(entry) = log_receiver.recv().await {
                 stats_writer.record(entry.status_code, entry.latency_ms);
+                let ts_secs = entry.timestamp_us / 1_000_000;
+                let created_at = chrono::DateTime::from_timestamp(ts_secs as i64, 0)
+                    .unwrap_or_default()
+                    .to_rfc3339();
+                log_buffer_writer.push(request_stats::LogEntry {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    route_id: entry.route_id,
+                    method: entry.method,
+                    path: entry.path,
+                    status_code: entry.status_code,
+                    latency_ms: entry.latency_ms,
+                    client_ip: entry.client_ip,
+                    upstream_target: entry.upstream_target,
+                    created_at,
+                });
             }
         });
     });
@@ -169,6 +203,7 @@ fn main() {
     let admin_port = app_config.admin_port;
     let max_spec_size_bytes = app_config.max_spec_size_mb * 1024 * 1024;
     let admin_stats = stats.clone();
+    let admin_log_buffer = log_buffer.clone();
     let admin_config = gateway_config.clone();
     std::thread::spawn(move || {
         let rt = tokio::runtime::Builder::new_current_thread()
@@ -177,7 +212,7 @@ fn main() {
             .expect("Failed to build admin API runtime");
 
         rt.block_on(async move {
-            let router = build_admin_router(admin_pool, max_spec_size_bytes, admin_stats, admin_config);
+            let router = build_admin_router(admin_pool, max_spec_size_bytes, admin_stats, admin_log_buffer, admin_config);
             let addr = format!("0.0.0.0:{}", admin_port);
             let listener = tokio::net::TcpListener::bind(&addr)
                 .await
@@ -219,6 +254,7 @@ fn build_admin_router(
     pool: sqlx::SqlitePool,
     max_spec_size_bytes: usize,
     stats: Arc<request_stats::RequestStats>,
+    log_buffer: Arc<request_stats::RequestLogBuffer>,
     gateway_config: Arc<ArcSwap<proxy_core::router::GatewayConfig>>,
 ) -> axum::Router {
     use axum::extract::DefaultBodyLimit;
@@ -344,6 +380,7 @@ fn build_admin_router(
         .layer(DefaultBodyLimit::max(max_spec_size_bytes))
         .layer(Extension(routes::services::AppSettings { max_spec_size_bytes }))
         .layer(Extension(stats))
+        .layer(Extension(log_buffer))
         .layer(Extension(gateway_config))
         // Gateway reverse proxy (Try It panel in dashboard)
         .route("/gateway/*rest", axum::routing::any(gateway_proxy::proxy_to_gateway))
@@ -367,7 +404,8 @@ mod e2e_tests {
         let gateway_config = Arc::new(ArcSwap::from_pointee(
             config_loader::load_config(&pool).await,
         ));
-        let router = build_admin_router(pool.clone(), 10 * 1024 * 1024, stats, gateway_config);
+        let log_buffer = Arc::new(request_stats::RequestLogBuffer::new());
+        let router = build_admin_router(pool.clone(), 10 * 1024 * 1024, stats, log_buffer, gateway_config);
         (pool, router)
     }
 

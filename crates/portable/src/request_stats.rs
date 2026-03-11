@@ -1,8 +1,10 @@
+use serde::Serialize;
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+use uuid::Uuid;
 
 /// In-memory request statistics for standalone mode.
-/// Tracks aggregate counts and latency — no per-request log storage.
 pub struct RequestStats {
     pub total_requests: AtomicU64,
     pub error_count: AtomicU64,
@@ -62,9 +64,9 @@ impl RequestStats {
             if latencies.is_empty() {
                 0.0
             } else {
-                latencies.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
                 let idx = ((latencies.len() as f64) * 0.95) as usize;
                 let idx = idx.min(latencies.len() - 1);
+                latencies.select_nth_unstable_by(idx, |a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
                 latencies[idx]
             }
         } else {
@@ -85,6 +87,93 @@ pub struct StatsSnapshot {
     pub error_rate: f64,
     pub avg_latency_ms: f64,
     pub p95_latency_ms: f64,
+}
+
+/// A single log entry stored in memory.
+#[derive(Debug, Clone, Serialize)]
+pub struct LogEntry {
+    pub id: String,
+    pub route_id: Option<Uuid>,
+    pub method: String,
+    pub path: String,
+    pub status_code: i32,
+    pub latency_ms: f64,
+    pub client_ip: String,
+    pub upstream_target: Option<String>,
+    pub created_at: String,
+}
+
+const MAX_LOG_ENTRIES: usize = 200;
+
+/// Ring buffer holding the last N request log entries.
+pub struct RequestLogBuffer {
+    entries: Mutex<VecDeque<LogEntry>>,
+}
+
+impl RequestLogBuffer {
+    pub fn new() -> Self {
+        Self {
+            entries: Mutex::new(VecDeque::with_capacity(MAX_LOG_ENTRIES)),
+        }
+    }
+
+    pub fn push(&self, entry: LogEntry) {
+        if let Ok(mut buf) = self.entries.lock() {
+            if buf.len() >= MAX_LOG_ENTRIES {
+                buf.pop_back();
+            }
+            buf.push_front(entry);
+        }
+    }
+
+    /// Return a page of log entries (newest first) with optional filters.
+    pub fn query(
+        &self,
+        page: usize,
+        limit: usize,
+        route_id: Option<&str>,
+        status: Option<i32>,
+        method: Option<&str>,
+    ) -> (Vec<LogEntry>, usize) {
+        let buf = match self.entries.lock() {
+            Ok(b) => b,
+            Err(_) => return (vec![], 0),
+        };
+
+        let parsed_route_id = route_id.and_then(|rid| Uuid::parse_str(rid).ok());
+        let filtered: Vec<&LogEntry> = buf
+            .iter()
+            .filter(|e| {
+                if let Some(ref rid) = parsed_route_id {
+                    if e.route_id.as_ref() != Some(rid) {
+                        return false;
+                    }
+                }
+                if let Some(s) = status {
+                    if e.status_code != s {
+                        return false;
+                    }
+                }
+                if let Some(m) = method {
+                    if !e.method.eq_ignore_ascii_case(m) {
+                        return false;
+                    }
+                }
+                true
+            })
+            .collect();
+
+        let total = filtered.len();
+        let offset = (page - 1) * limit;
+        let data = filtered
+            .into_iter()
+            .skip(offset)
+            .take(limit)
+            .cloned()
+            .collect();
+
+        (data, total)
+    }
 }
 
 #[cfg(test)]

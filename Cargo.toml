@@ -6,9 +6,10 @@ members = [
     "crates/shared",
     "crates/portable",
 ]
+exclude = ["gate-rust", "gate-java"]
 
 [workspace.package]
-version = "1.7.2"
+version = "1.8.0"
 edition = "2021"
 license = "Apache-2.0"
 

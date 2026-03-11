@@ -17,6 +17,7 @@ use uuid::Uuid;
 
 /// A log entry for request logging (no-op in standalone — entries are dropped).
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct RequestLogEntry {
     pub route_id: Option<Uuid>,
     pub method: String,
@@ -124,7 +125,7 @@ impl ProxyHttp for GatewayProxy {
     ) -> Result<bool> {
         let method = session.req_header().method.as_str();
         let path = session.req_header().uri.path().to_string();
-        tracing::debug!(method = %method, path = %path, "Incoming request");
+        tracing::debug!("<< {method} {path}");
 
         let config = self.config.load();
 
@@ -594,6 +595,22 @@ impl ProxyHttp for GatewayProxy {
             }
         }
 
+        // Debug: log the full upstream request as a single line
+        {
+            let uri = &upstream_request.uri;
+            let method = &upstream_request.method;
+            let host = upstream_request.headers.get("host").and_then(|v| v.to_str().ok()).unwrap_or("-");
+            let upstream_target = ctx.upstream_target.as_deref().unwrap_or("-");
+            let scheme = if ctx.target_tls { "https" } else { "http" };
+            let soap_info = if let Some(ref op) = ctx.soap_operation {
+                format!(" | SOAP {} action={}", op.operation_name, op.soap_action)
+            } else {
+                String::new()
+            };
+
+            tracing::debug!(">> {method} {scheme}://{host}{uri} -> {upstream_target}{soap_info}");
+        }
+
         Ok(())
     }
 
@@ -841,15 +858,9 @@ impl ProxyHttp for GatewayProxy {
             .with_label_values(&[&route_label, method])
             .observe(duration.as_secs_f64());
 
-        tracing::info!(
-            method = %method,
-            path = %path,
-            status = status,
-            latency_ms = duration.as_secs_f64() * 1000.0,
-            upstream = ctx.upstream_target.as_deref().unwrap_or("-"),
-            route_id = route_label,
-            "Request completed"
-        );
+        let latency = duration.as_secs_f64() * 1000.0;
+        let upstream = ctx.upstream_target.as_deref().unwrap_or("-");
+        tracing::info!("{method} {path} -> {status} {latency:.1}ms [{upstream}]");
 
         let error_body = ctx.error_body.take().and_then(|b| {
             String::from_utf8(b).ok().filter(|s| !s.is_empty())
@@ -863,7 +874,7 @@ impl ProxyHttp for GatewayProxy {
             method: method.to_string(),
             path: path.to_string(),
             status_code: status as i32,
-            latency_ms: duration.as_secs_f64() * 1000.0,
+            latency_ms: latency,
             client_ip: self.get_client_ip(session),
             upstream_target: ctx.upstream_target.clone(),
             error_body,

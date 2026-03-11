@@ -129,7 +129,4 @@ impl StateBackend {
         let _ = self.circuit_breaker().record_success(target_id);
     }
 
-    pub fn is_redis(&self) -> bool {
-        false
-    }
 }

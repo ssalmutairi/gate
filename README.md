@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.7.2-blue" alt="Version" />
+  <img src="https://img.shields.io/badge/version-1.8.0-blue" alt="Version" />
   <img src="https://img.shields.io/badge/tests-301%20passed-brightgreen" alt="Tests" />
   <img src="https://img.shields.io/badge/rust-1.86-orange" alt="Rust" />
   <img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="License" />
@@ -46,6 +46,18 @@
 - **Kubernetes Ready** - Helm chart and plain YAML manifests with PostgreSQL and Redis
 - **Cross-Platform Binaries** - Precompiled releases for Linux and macOS (x86_64 + aarch64)
 - **Docker Compose** - One-command deployment of the full stack
+
+## Lightweight Editions
+
+Simpler, single-purpose API gateways with the same PROXY env var interface — pick the one that fits your stack:
+
+| Edition | Language | Docker Image | Memory | Startup |
+|---------|----------|-------------|--------|---------|
+| [gate-rust](gate-rust/) | Rust (Axum) | 15 MB | ~7 MB | ~1 ms |
+| [gate-deno](gate-deno/) | TypeScript (Deno) | 118 MB | ~30 MB | ~50 ms |
+| [gate-java](gate-java/) | Java 21 (Spring WebFlux) | 231 MB | ~150 MB | ~3-5s |
+
+All three support path-based routing, per-service API key auth, TLS upstreams, host override, configurable timeouts, SOAP proxying, and Kubernetes deployment.
 
 ## SOAP/WSDL Support
 
@@ -148,7 +160,7 @@ curl -fsSL https://raw.githubusercontent.com/ssalmutairi/gate/main/install.sh | 
 Or download a specific version:
 
 ```bash
-VERSION=v1.7.2 curl -fsSL https://raw.githubusercontent.com/ssalmutairi/gate/main/install.sh | bash
+VERSION=v1.8.0 curl -fsSL https://raw.githubusercontent.com/ssalmutairi/gate/main/install.sh | bash
 ```
 
 This installs `gate-proxy`, `gate-admin`, and `gate-portable` to `/usr/local/bin`. Run `gate-portable` for zero-config portable mode, or set `DATABASE_URL` and run `gate-admin` + `gate-proxy` for full mode with PostgreSQL.

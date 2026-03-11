@@ -193,6 +193,7 @@ fn extract_url_path(url: &str) -> String {
 pub const MAX_SOAP_BODY_BYTES: usize = 10 * 1024 * 1024;
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct SoapOperationMeta {
     pub soap_action: String,
     pub operation_name: String,
@@ -204,6 +205,7 @@ pub struct SoapOperationMeta {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct SoapServiceMeta {
     pub target_namespace: String,
     pub soap_endpoint: String,

@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-03-09
+
+### Added
+
+- **Upstream TLS Support** — Per-upstream TLS configuration with mTLS client certificates, custom CA cert validation, and skip-verify option; supported across portable, proxy, and admin modes with dashboard UI for managing TLS settings
+- **In-memory request logging** — Portable mode now stores the last 200 requests in a ring buffer, served via `/admin/logs` with pagination and filtering by route, status, and method
+- **`.env` file support** — Portable mode loads `.env` via dotenvy; non-SQLite `DATABASE_URL` values are safely overridden to `sqlite://gate.db`
+- **Pretty log format** — Set `LOG_FORMAT=pretty` for human-readable single-line logs; debug-level upstream request details with `RUST_LOG=portable=debug`
+
+### Changed
+
+- **Compact log output** — Request logs now use single-line format: `GET /path -> 200 12.3ms [upstream]`
+- **P95 latency calculation** — Uses `select_nth_unstable_by` (O(n)) instead of full sort (O(n log n))
+
+### Removed
+
+- Unused `is_redis()` method from state backend
+
 ## [1.7.2] - 2026-03-06
 
 ### Changed
